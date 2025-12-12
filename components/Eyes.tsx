@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { EyeState, Emotion } from '../types';
@@ -10,8 +9,8 @@ interface EyesProps {
 }
 
 // Physics configuration for "Pixar-like" snappy but organic movement
-const PUPIL_SPRING = { type: "spring" as const, stiffness: 400, damping: 28, mass: 0.8 };
-const LID_SPRING = { type: "spring" as const, stiffness: 300, damping: 35, mass: 1.2 };
+const PUPIL_SPRING = { type: "spring", stiffness: 400, damping: 28, mass: 0.8 } as const;
+const LID_SPRING = { type: "spring", stiffness: 300, damping: 35, mass: 1.2 } as const;
 
 const Eyes: React.FC<EyesProps> = ({ state, emotion, volume }) => {
   const [blink, setBlink] = useState(false);
