@@ -100,7 +100,7 @@ export async function playPCMAudio(base64String: string, sampleRate = 24000) {
   const float32Data = int16ToFloat32(arrayBuffer);
 
   const buffer = tempAudioContext.createBuffer(1, float32Data.length, sampleRate);
-  buffer.copyToChannel(float32Data as Float32Array, 0);
+  buffer.copyToChannel(float32Data as any, 0);
 
   const source = tempAudioContext.createBufferSource();
   source.buffer = buffer;
