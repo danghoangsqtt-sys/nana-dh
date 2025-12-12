@@ -4,7 +4,6 @@ import { PanelLeftOpen, Key, User, Sparkles } from 'lucide-react';
 import { UserSettings, EyeState, Emotion, UserLocation, ChatSession, ChatMessage, AppMode } from './types';
 import Eyes from './components/Eyes';
 import Mouth from './components/Mouth';
-import Ears from './components/Ears'; // Import Ears
 import SettingsModal from './components/SettingsModal';
 import Sidebar from './components/Sidebar';
 import VideoPlayer from './components/VideoPlayer';
@@ -461,9 +460,6 @@ const App: React.FC = () => {
 
                             {/* Face */}
                             <div className="relative z-10 flex flex-col items-center justify-center">
-                                {/* Dynamic Ears - React to Listening State */}
-                                <Ears state={gemini.state} volume={gemini.active ? gemini.volume : 0} />
-
                                 <Eyes state={gemini.state} emotion={currentEmotion} volume={gemini.active ? gemini.volume : 0} />
                                 <div className={`transition-opacity duration-300 ${gemini.state === EyeState.SPEAKING ? 'opacity-100' : 'opacity-30'}`}>
                                     <Mouth eyeState={gemini.state} emotion={currentEmotion} volume={gemini.active ? gemini.volume : 0} />
