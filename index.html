@@ -1,77 +1,86 @@
 <!DOCTYPE html>
 <html lang="vi">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NaNa AI Assistant</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Playfair+Display:ital,wght@1,400;1,600&display=swap" rel="stylesheet">
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              mono: ['JetBrains Mono', 'monospace'],
-              serif: ['Playfair Display', 'serif'],
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='128' height='128' rx='32' fill='%230f0f0f'/%3E%3Cpath d='M40 92V36L88 92V36' stroke='url(%23g)' stroke-width='14' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
+  <title>NaNa AI Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Playfair+Display:ital,wght@1,400;1,600&display=swap"
+    rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+            serif: ['Playfair Display', 'serif'],
+          },
+          colors: {
+            vivi: {
+              purple: '#a855f7',
+              blue: '#3b82f6',
+            }
+          },
+          animation: {
+            'glow': 'glow 2s ease-in-out infinite alternate',
+            'gradient-xy': 'gradient-xy 6s ease infinite',
+            'pulse-slow': 'pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          },
+          keyframes: {
+            glow: {
+              '0%': { textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' },
+              '100%': { textShadow: '0 0 20px rgba(59, 130, 246, 0.8), 0 0 10px rgba(168, 85, 247, 0.5)' },
             },
-            colors: {
-              vivi: { 
-                purple: '#a855f7',
-                blue: '#3b82f6',
+            'gradient-xy': {
+              '0%, 100%': {
+                'background-size': '400% 400%',
+                'background-position': 'left center'
+              },
+              '50%': {
+                'background-size': '200% 200%',
+                'background-position': 'right center'
               }
             },
-            animation: {
-              'glow': 'glow 2s ease-in-out infinite alternate',
-              'gradient-xy': 'gradient-xy 6s ease infinite',
-              'pulse-slow': 'pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            },
-            keyframes: {
-              glow: {
-                '0%': { textShadow: '0 0 10px rgba(168, 85, 247, 0.5)' },
-                '100%': { textShadow: '0 0 20px rgba(59, 130, 246, 0.8), 0 0 10px rgba(168, 85, 247, 0.5)' },
-              },
-              'gradient-xy': {
-                '0%, 100%': {
-                  'background-size': '400% 400%',
-                  'background-position': 'left center'
-                },
-                '50%': {
-                  'background-size': '200% 200%',
-                  'background-position': 'right center'
-                }
-              },
-              'pulse-slow': {
-                '0%, 100%': { opacity: 1 },
-                '50%': { opacity: 0.4 },
-              }
+            'pulse-slow': {
+              '0%, 100%': { opacity: 1 },
+              '50%': { opacity: 0.4 },
             }
           }
         }
       }
-    </script>
-    <style>
-      body {
-        background-color: #000;
-        color: #fff;
-        overflow: hidden; /* Prevent scrolling */
-      }
-      .text-glow-purple {
-        text-shadow: 0 0 30px rgba(168, 85, 247, 0.4);
-      }
-      .text-glow-blue {
-        text-shadow: 0 0 30px rgba(59, 130, 246, 0.4);
-      }
-      /* Utility for gradient text animation */
-      .animate-text-gradient {
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 300% 300%;
-        animation: gradient-xy 8s ease infinite;
-      }
-    </style>
-    <link rel="stylesheet" href="/index.css">
+    }
+  </script>
+  <style>
+    body {
+      background-color: #000;
+      color: #fff;
+      overflow: hidden;
+      /* Prevent scrolling */
+    }
+
+    .text-glow-purple {
+      text-shadow: 0 0 30px rgba(168, 85, 247, 0.4);
+    }
+
+    .text-glow-blue {
+      text-shadow: 0 0 30px rgba(59, 130, 246, 0.4);
+    }
+
+    /* Utility for gradient text animation */
+    .animate-text-gradient {
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-size: 300% 300%;
+      animation: gradient-xy 8s ease infinite;
+    }
+  </style>
+  <link rel="stylesheet" href="/index.css">
   <script type="importmap">
 {
   "imports": {
@@ -87,8 +96,10 @@
 }
 </script>
 </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
 </html>

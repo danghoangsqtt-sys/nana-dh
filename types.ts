@@ -8,6 +8,8 @@ export interface UserSettings {
   translationLangB: string; // e.g., 'en'
   apiKey?: string; // New field for custom API Key
   optimizeLatency?: boolean; // Feature to disable thinking for faster response
+  voiceSensitivity: number; // 0.1 to 5.0 (Default 1.5)
+  userVoiceSample?: string; // Base64 PCM 16kHz Raw Audio
 }
 
 export enum EyeState {
@@ -47,12 +49,12 @@ export interface ChatMessage {
 }
 
 export interface ChatSession {
-    id: string;
-    title: string;
-    messages: ChatMessage[];
-    createdAt: number;
-    updatedAt: number;
-    isPinned: boolean;
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+  isPinned: boolean;
 }
 
 export interface UserLocation {

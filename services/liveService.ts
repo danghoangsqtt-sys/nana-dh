@@ -84,6 +84,9 @@ export class LiveService {
   private currentInputTranscription = "";
   private currentOutputTranscription = "";
 
+  // Store settings locally for audio graph config
+  private currentSettings: UserSettings | null = null;
+
   public onStateChange: (state: EyeState) => void = () => { };
   public onVolumeChange: (volume: number) => void = () => { };
   public onTranscript: (text: string, isUser: boolean, isFinal: boolean) => void = () => { };
@@ -99,6 +102,7 @@ export class LiveService {
   }
 
   async connect(settings: UserSettings, location: UserLocation | null, mode: AppMode) {
+    this.currentSettings = settings;
     let systemInstruction = "";
     let activeTools = customTools;
 
@@ -106,7 +110,6 @@ export class LiveService {
       const langA = LANGUAGE_NAMES[settings.translationLangA || 'vi'] || 'Vietnamese';
       const langB = LANGUAGE_NAMES[settings.translationLangB || 'en'] || 'English';
 
-      // Instruction cho phiên dịch song ngữ liên tục
       systemInstruction = `
       ROLE: Professional Bi-directional Interpreter.
       LANGUAGES: ${langA} <-> ${langB}.
@@ -119,11 +122,14 @@ export class LiveService {
       5. Call function 'report_language_change' ONLY when the language switches.
       6. OUTPUT: Translate audio ONLY. Do NOT chat. Do NOT ask questions. Keep the original tone.
       `;
-
-      // Lọc bỏ YouTube tool khi ở chế độ phiên dịch
       activeTools = customTools.filter(tool => tool.name !== 'play_youtube_video');
     } else {
-      systemInstruction = `Role: NaNa, a witty assistant. User: "Ông chủ". CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}. SPEED: Reply INSTANTLY (under 10 words). PERSONA: Speak Vietnamese naturally. Context: ${settings.fileContext.substring(0, 500)}`;
+      // Main Assistant Mode with Voice Identity Enforcement
+      const userContext = settings.userVoiceSample
+        ? `IMPORTANT: You have a "Main User" named ${settings.userName}. You will receive a voice sample at the start. MEMORIZE it. If a different voice speaks, you must ask: "Bạn không phải là ${settings.userName} phải không?" before obeying major commands.`
+        : `User: "${settings.userName}".`;
+
+      systemInstruction = `Role: NaNa, a witty assistant. ${userContext} CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}. SPEED: Reply INSTANTLY (under 10 words). PERSONA: Speak Vietnamese naturally. Knowledge: ${settings.fileContext.substring(0, 500)}`;
     }
 
     try {
@@ -131,7 +137,7 @@ export class LiveService {
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
       const toolsConfig: any[] = [{ functionDeclarations: activeTools }];
-      
+
       // Base configuration
       const modelConfig: any = {
         responseModalities: [Modality.AUDIO],
@@ -142,9 +148,8 @@ export class LiveService {
         outputAudioTranscription: {},
       };
 
-      // Optimization: Disable thinking budget if optimizeLatency is requested
       if (settings.optimizeLatency) {
-          modelConfig.thinkingConfig = { thinkingBudget: 0 };
+        modelConfig.thinkingConfig = { thinkingBudget: 0 };
       }
 
       const config: any = {
@@ -160,39 +165,36 @@ export class LiveService {
           },
           onerror: (e: any) => {
             this.onStateChange(EyeState.IDLE);
-            
-            // Extract meaningful error message
+
             let msg = "Lỗi kết nối.";
             let rawMsg = "";
-            
+
             if (e instanceof Error) {
-                rawMsg = e.message;
+              rawMsg = e.message;
             } else if (typeof e === 'string') {
-                rawMsg = e;
+              rawMsg = e;
             } else if ((e as any).message) {
-                rawMsg = (e as any).message;
+              rawMsg = (e as any).message;
             } else {
-                try {
-                    rawMsg = JSON.stringify(e);
-                } catch {
-                    rawMsg = "Unknown Error Event";
-                }
-            }
-            
-            // Handle Network Error specific strings
-            if (rawMsg.includes("Network error") || rawMsg.includes("Failed to fetch") || rawMsg.includes("network")) {
-                 console.warn("Gemini Live Network Error (Expected):", rawMsg);
-                 msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
-            } else {
-                 console.error("Session error event:", e);
-                 msg = rawMsg || "Lỗi không xác định.";
+              try {
+                rawMsg = JSON.stringify(e);
+              } catch {
+                rawMsg = "Unknown Error Event";
+              }
             }
 
-            // Standardize specific API errors
+            if (rawMsg.includes("Network error") || rawMsg.includes("Failed to fetch") || rawMsg.includes("network")) {
+              console.warn("Gemini Live Network Error (Expected):", rawMsg);
+              msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
+            } else {
+              console.error("Session error event:", e);
+              msg = rawMsg || "Lỗi không xác định.";
+            }
+
             if (msg.toLowerCase().includes("not found") || msg.includes("404")) {
-                msg = "Requested entity was not found (404).";
+              msg = "Requested entity was not found (404).";
             } else if (msg.toLowerCase().includes("permission denied") || msg.includes("403") || msg.includes("401")) {
-                msg = "Invalid API Key or Permission Denied.";
+              msg = "Invalid API Key or Permission Denied.";
             }
 
             this.onError(msg);
@@ -204,26 +206,23 @@ export class LiveService {
       this.sessionPromise = this.ai.live.connect(config);
       const session = await this.sessionPromise;
 
-      // Handle race condition: If disconnect() was called while awaiting connection
       if (!this.sessionPromise) {
-          console.log("Session connected but service was disconnected. Closing now.");
-          try { session.close(); } catch(e) {}
-          return;
+        console.log("Session connected but service was disconnected. Closing now.");
+        try { session.close(); } catch (e) { }
+        return;
       }
       this.session = session;
 
     } catch (error: any) {
       console.error("Connect failed exception:", error);
       this.onStateChange(EyeState.IDLE);
-      
+
       let msg = error.message || "Không thể kết nối.";
-      
-      // Map common errors
       if (msg.includes("404")) msg = "Requested entity was not found (404).";
       if (msg.toLowerCase().includes("network error") || msg.toLowerCase().includes("failed to fetch")) {
-          msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
+        msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
       }
-      
+
       this.onError(msg);
       this.onDisconnect();
     }
@@ -233,6 +232,30 @@ export class LiveService {
     console.log("Connected to Gemini Live");
     this.startAudioInput();
     this.onStateChange(EyeState.LISTENING);
+
+    // VOICE IDENTITY INJECTION
+    // If user has a saved voice sample, send it immediately as context.
+    if (this.currentSettings?.userVoiceSample && this.session) {
+      console.log("Injecting Voice Identity Sample...");
+      try {
+        // Send the audio sample
+        this.session.sendRealtimeInput([{
+          mimeType: "audio/pcm;rate=16000",
+          data: this.currentSettings.userVoiceSample
+        }]);
+
+        // Send the context instruction for that sample
+        // Note: Sending text right after audio might be treated as prompt
+        setTimeout(() => {
+          this.session.sendRealtimeInput([{
+            text: `SYSTEM NOTE: The audio chunk I just sent is the VOICE SIGNATURE of the Main User (${this.currentSettings?.userName}). Use this to distinguish the owner from others. If you hear a different voice, be skeptical.`
+          }]);
+        }, 500);
+
+      } catch (e) {
+        console.error("Failed to inject voice sample", e);
+      }
+    }
   }
 
   private async handleMessage(message: LiveServerMessage) {
@@ -320,7 +343,6 @@ export class LiveService {
         await this.inputAudioContext.resume();
       }
 
-      // Enhanced Constraints for Noise Cancellation
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -328,9 +350,9 @@ export class LiveService {
           noiseSuppression: { ideal: true },
           autoGainControl: { ideal: true },
           // @ts-ignore
-          googEchoCancellation: true, 
+          googEchoCancellation: true,
           // @ts-ignore
-          googNoiseSuppression: true, 
+          googNoiseSuppression: true,
           // @ts-ignore
           googHighpassFilter: true,
           // @ts-ignore
@@ -343,14 +365,15 @@ export class LiveService {
       // Filters
       this.highPassFilter = this.inputAudioContext.createBiquadFilter();
       this.highPassFilter.type = "highpass";
-      this.highPassFilter.frequency.value = 150; 
+      this.highPassFilter.frequency.value = 150;
 
       this.lowPassFilter = this.inputAudioContext.createBiquadFilter();
       this.lowPassFilter.type = "lowpass";
       this.lowPassFilter.frequency.value = 6000;
 
       this.gainNode = this.inputAudioContext.createGain();
-      this.gainNode.gain.value = 1.5;
+      // Apply Sensitivity setting (Default 1.5)
+      this.gainNode.gain.value = this.currentSettings?.voiceSensitivity || 1.5;
 
       this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
 
@@ -374,16 +397,15 @@ export class LiveService {
         const noiseThreshold = isAIPlaying ? 0.03 : 0.015;
 
         if (rms < noiseThreshold) {
-           for (let i = 0; i < inputData.length; i++) {
-               inputData[i] = 0;
-           }
+          for (let i = 0; i < inputData.length; i++) {
+            inputData[i] = 0;
+          }
         }
 
         if (sourceSampleRate !== 16000) {
           inputData = downsampleBuffer(inputData as any, sourceSampleRate, 16000) as any;
         }
 
-        // Only send input if sessionPromise exists (meaning not disconnected)
         this.sessionPromise?.then(session => {
           try {
             const pcm16 = float32ToInt16(inputData as any);
@@ -391,7 +413,6 @@ export class LiveService {
             session.sendRealtimeInput({ media: { mimeType: 'audio/pcm;rate=16000', data: base64 } });
           } catch (err) { }
         }).catch(() => {
-           // Ignore errors from rejected promise (disconnect)
         });
       };
     } catch (error: any) {
@@ -450,7 +471,7 @@ export class LiveService {
     this.highPassFilter?.disconnect();
 
     this.stopAudioPlayback();
-    
+
     if (this.session) {
       try {
         this.session.close();
@@ -458,14 +479,14 @@ export class LiveService {
         console.error("Error closing session", e);
       }
     } else if (this.sessionPromise) {
-        this.sessionPromise.then(s => {
-            try { 
-                console.log("Closing pending session due to disconnect");
-                s.close(); 
-            } catch(e) {}
-        }).catch(() => {});
+      this.sessionPromise.then(s => {
+        try {
+          console.log("Closing pending session due to disconnect");
+          s.close();
+        } catch (e) { }
+      }).catch(() => { });
     }
-    
+
     this.session = null;
     this.sessionPromise = null;
   }
