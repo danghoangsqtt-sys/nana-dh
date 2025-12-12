@@ -54,17 +54,17 @@ export function downsampleBuffer(buffer: Float32Array, inputSampleRate: number, 
   if (outputSampleRate === inputSampleRate) {
     return buffer;
   }
-  
+
   const sampleRateRatio = inputSampleRate / outputSampleRate;
   const newLength = Math.floor(buffer.length / sampleRateRatio);
   const result = new Float32Array(newLength);
-  
+
   for (let i = 0; i < newLength; i++) {
     // Direct picking (Decimation) - Faster than averaging loop
     const offset = Math.floor(i * sampleRateRatio);
     result[i] = buffer[offset];
   }
-  
+
   return result;
 }
 
@@ -91,27 +91,27 @@ export function arrayBufferToBase64(buffer: ArrayBuffer) {
 // Used for TTS playback (one-off), so we can create a temporary context here safely
 // providing it's triggered by user interaction.
 export async function playPCMAudio(base64String: string, sampleRate = 24000) {
-    const arrayBuffer = base64ToArrayBuffer(base64String);
-    const tempAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate,
-    });
-    
-    // Gemini usually sends PCM 16-bit LE, single channel
-    const float32Data = int16ToFloat32(arrayBuffer);
-    
-    const buffer = tempAudioContext.createBuffer(1, float32Data.length, sampleRate);
-    buffer.copyToChannel(float32Data, 0);
+  const arrayBuffer = base64ToArrayBuffer(base64String);
+  const tempAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+    sampleRate,
+  });
 
-    const source = tempAudioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(tempAudioContext.destination);
-    source.start(0);
-    
-    return new Promise<void>((resolve) => {
-        source.onended = () => {
-            source.disconnect();
-            tempAudioContext.close();
-            resolve();
-        };
-    });
+  // Gemini usually sends PCM 16-bit LE, single channel
+  const float32Data = int16ToFloat32(arrayBuffer);
+
+  const buffer = tempAudioContext.createBuffer(1, float32Data.length, sampleRate);
+  buffer.copyToChannel(float32Data as Float32Array, 0);
+
+  const source = tempAudioContext.createBufferSource();
+  source.buffer = buffer;
+  source.connect(tempAudioContext.destination);
+  source.start(0);
+
+  return new Promise<void>((resolve) => {
+    source.onended = () => {
+      source.disconnect();
+      tempAudioContext.close();
+      resolve();
+    };
+  });
 }
