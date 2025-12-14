@@ -2,19 +2,18 @@ import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } f
 import { UserSettings, EyeState, Emotion, VideoState, UserLocation, AppMode } from "../types";
 import { getAudioContext, float32ToInt16, downsampleBuffer, arrayBufferToBase64, int16ToFloat32, base64ToArrayBuffer } from "../utils/audioUtils";
 
-// --- CẬP NHẬT CẤU HÌNH TOOL ---
+// --- 1. CẤU HÌNH TOOL CHẶT CHẼ HƠN ---
 const customTools: FunctionDeclaration[] = [
   {
     name: "play_youtube_video",
-    // CẬP NHẬT: Mô tả rõ ràng bắt buộc phải là ID
-    description: "Plays a specific YouTube video using its ID. CRITICAL: You MUST provide a valid 11-character YouTube Video ID (e.g., dQw4w9WgXcQ), NOT a search term. If you don't have the ID, use 'googleSearch' tool to find it first.",
+    description: "Plays a YouTube video. EXECUTION RULE: Only call this tool if you have successfully found a REAL 11-character Video ID via Google Search. DO NOT GUESS. Input must be the ID (e.g. dQw4w9WgXcQ), not the title.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        videoId: { type: Type.STRING, description: "The 11-character YouTube Video ID found via Google Search (e.g., 'e-ORhEE9VVg')" },
-        title: { type: Type.STRING, description: "The title of the video for display" }
+        videoId: { type: Type.STRING, description: "The exact 11-character YouTube Video ID (e.g. 'e-ORhEE9VVg'). Must NOT be a search term." },
+        title: { type: Type.STRING, description: "The exact title of the video found in search results" }
       },
-      required: ["videoId"]
+      required: ["videoId", "title"]
     }
   },
   {
@@ -31,7 +30,7 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "enter_deep_sleep",
-    description: "Enter deep sleep mode (Always On Display) when the user says goodnight or wants to stop interacting.",
+    description: "Enter deep sleep mode (Always On Display).",
     parameters: {
       type: Type.OBJECT,
       properties: {},
@@ -39,7 +38,7 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "open_settings",
-    description: "Open the settings menu when the user asks to open settings, configure app, or change API key (Mở cài đặt).",
+    description: "Open the settings menu.",
     parameters: {
       type: Type.OBJECT,
       properties: {},
@@ -47,22 +46,22 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "report_language_change",
-    description: "Report the detected language when it changes during translation.",
+    description: "Report detected language change.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        language: { type: Type.STRING, description: "The detected language name (e.g., Vietnamese, English)" }
+        language: { type: Type.STRING, description: "Detected language name" }
       },
       required: ["language"]
     }
   },
   {
     name: "search_legal_docs",
-    description: "Search for specific information, laws, or regulations within the uploaded document/knowledge base. Use this when the user asks about specific details contained in the file context.",
+    description: "Search information in the uploaded knowledge base.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        query: { type: Type.STRING, description: "The keyword or specific topic to search for in the document" }
+        query: { type: Type.STRING, description: "Keyword to search" }
       },
       required: ["query"]
     }
@@ -121,35 +120,33 @@ export class LiveService {
       const langB = LANGUAGE_NAMES[settings.translationLangB || 'en'] || 'English';
 
       systemInstruction = `
-      ROLE: Professional Bi-directional Interpreter.
-      LANGUAGES: ${langA} <-> ${langB}.
-      OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately.
-      Call 'report_language_change' only when language switches.
-      OUTPUT: Translate audio ONLY. No chit-chat.
+      ROLE: Bi-directional Interpreter (${langA} <-> ${langB}).
+      TASK: Translate audio instantly. No chit-chat.
       `;
       activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
       const userContext = settings.userVoiceSample
-        ? `IMPORTANT: Main User is ${settings.userName}. Verify voice identity if needed.`
+        ? `IMPORTANT: User is ${settings.userName}.`
         : `User: "${settings.userName}".`;
 
       const kbContext = settings.fileContext
-        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Check Knowledge Base first for answers.`
+        ? `\nKNOWLEDGE BASE:\n${settings.fileContext}\nCheck this first.`
         : "";
 
-      // --- CẬP NHẬT SYSTEM INSTRUCTION ---
-      // Thêm quy trình xử lý Video bắt buộc
+      // --- 2. CẬP NHẬT PROMPT HỆ THỐNG MẠNH MẼ ---
+      // Hướng dẫn chi tiết cách tìm kiếm và tránh Taylor Swift (hallucination phổ biến)
       systemInstruction = `
-      Role: NaNa, a witty assistant. ${userContext}
+      Role: NaNa, an AI assistant. ${userContext}
       CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}.
-      PERSONA: Speak Vietnamese naturally.
       
-      IMPORTANT VIDEO PROTOCOL:
-      When the user asks to play a video or music:
-      1. DO NOT guess the ID.
-      2. Call 'googleSearch' with query "youtube video id for [song/video name]".
-      3. Extract the 11-character Video ID from search results.
-      4. Call 'play_youtube_video' with that ID.
+      *** STRICT VIDEO SEARCH PROTOCOL ***
+      1. When user asks for a video (e.g. "Pháo hoa Hồng Kông", "Thịnh Suy"), YOU MUST SEARCH GOOGLE FIRST.
+      2. USE TOOL: googleSearch. Query format: "youtube video [Exact Keywords] site:youtube.com".
+      3. ANALYZE RESULTS: Look for a link like "www.youtube.com/watch?v=XXXXXXXXXXX".
+      4. EXTRACT ID: The "v=" parameter is the ID. It is ALWAYS 11 characters (letters, numbers, -, _).
+      5. VERIFY: Does the video title match the user request? If user asked for "Fireworks", DO NOT play "Taylor Swift" music video unless explicitly asked.
+      6. EXECUTE: Call 'play_youtube_video' with the extracted ID.
+      7. FAILURE: If you can't find a link, say "Tôi không tìm thấy video đó". DO NOT MAKE UP AN ID.
       
       ${kbContext}
       `;
@@ -161,7 +158,7 @@ export class LiveService {
 
       const toolsConfig: any[] = [
         { functionDeclarations: activeTools },
-        { googleSearch: {} } // Đảm bảo Google Search được kích hoạt
+        { googleSearch: {} }
       ];
 
       const modelConfig: any = {
@@ -169,8 +166,6 @@ export class LiveService {
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
         systemInstruction: systemInstruction,
         tools: toolsConfig,
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
       };
 
       if (settings.optimizeLatency) {
@@ -191,15 +186,12 @@ export class LiveService {
           onerror: (e: any) => {
             this.onStateChange(EyeState.IDLE);
             let msg = "Lỗi kết nối.";
-            let rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
-
-            if (rawMsg.includes("Network") || rawMsg.includes("fetch")) {
-              msg = "Lỗi mạng: Kiểm tra kết nối Internet.";
-            } else if (rawMsg.includes("404") || rawMsg.includes("not found")) {
-              msg = "Lỗi API: Model không tìm thấy hoặc Project bị xóa.";
-            } else if (rawMsg.includes("403") || rawMsg.includes("Permission")) {
-              msg = "Lỗi API Key: Không có quyền truy cập.";
-            }
+            try {
+              const rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+              if (rawMsg.includes("404")) msg = "Lỗi API: Model không tồn tại (404).";
+              else if (rawMsg.includes("403")) msg = "Lỗi API Key: Không có quyền (403).";
+              else if (rawMsg.includes("Network")) msg = "Lỗi mạng.";
+            } catch { }
             this.onError(msg);
             this.onDisconnect();
           }
@@ -221,18 +213,13 @@ export class LiveService {
     console.log("Connected to Gemini Live");
     this.startAudioInput();
     this.onStateChange(EyeState.LISTENING);
-
     if (this.currentSettings?.userVoiceSample && this.session) {
       try {
         this.session.sendRealtimeInput([{
           mimeType: "audio/pcm;rate=16000",
           data: this.currentSettings.userVoiceSample
         }]);
-        setTimeout(() => {
-          this.session.sendRealtimeInput([{
-            text: `SYSTEM NOTE: User Voice Signature provided.`
-          }]);
-        }, 500);
+        setTimeout(() => this.session.sendRealtimeInput([{ text: "System: Voice signature sent." }]), 500);
       } catch (e) { }
     }
   }
@@ -245,32 +232,12 @@ export class LiveService {
     }
 
     if (message.serverContent?.interrupted) {
-      console.log("Interrupted");
       this.stopAudioPlayback();
       this.isInterrupted = true;
-      this.currentOutputTranscription = "";
-    }
-
-    if (message.serverContent?.inputTranscription?.text) {
-      this.currentInputTranscription += message.serverContent.inputTranscription.text;
-      this.onTranscript(this.currentInputTranscription, true, false);
-    }
-
-    if (message.serverContent?.outputTranscription?.text) {
-      this.currentOutputTranscription += message.serverContent.outputTranscription.text;
-      this.onTranscript(this.currentOutputTranscription, false, false);
     }
 
     if (message.serverContent?.turnComplete) {
       this.isInterrupted = false;
-      if (this.currentInputTranscription) {
-        this.onTranscript(this.currentInputTranscription, true, true);
-        this.currentInputTranscription = "";
-      }
-      if (this.currentOutputTranscription) {
-        this.onTranscript(this.currentOutputTranscription, false, true);
-        this.currentOutputTranscription = "";
-      }
       setTimeout(() => {
         if (this.audioSources.size === 0) this.onStateChange(EyeState.LISTENING);
       }, 200);
@@ -284,54 +251,48 @@ export class LiveService {
       console.log("Tool Call:", fc.name, fc.args);
       let result: any = { status: "ok" };
 
-      // --- CẬP NHẬT LOGIC PLAY VIDEO ---
+      // --- 3. LOGIC KIỂM DUYỆT (VALIDATION) NGHIÊM NGẶT ---
       if (fc.name === 'play_youtube_video') {
-        // Nhận ID thay vì Search Query
-        const videoId = (fc.args.videoId || "").toString().trim();
-        const title = (fc.args.title || "YouTube Video").toString();
+        let videoId = (fc.args.videoId || "").toString().trim();
+        let title = (fc.args.title || "YouTube Video").toString();
 
-        if (videoId && videoId.length === 11) {
+        // Regex kiểm tra ID chuẩn của YouTube (11 ký tự, gồm a-z, A-Z, 0-9, -, _)
+        const youtubeIdRegex = /^[a-zA-Z0-9_-]{11}$/;
+
+        if (!youtubeIdRegex.test(videoId)) {
+          console.error(`Invalid Video ID detected: ${videoId}`);
+          // BÁO LỖI NGƯỢC LẠI CHO AI để nó tự sửa
+          result = {
+            status: "error",
+            message: `ERROR: The ID '${videoId}' is invalid. YouTube IDs must be exactly 11 characters. You likely hallucinated this ID. Please use 'googleSearch' again to find the REAL link (e.g. youtube.com/watch?v=...) and extract the correct 'v' parameter.`
+          };
+        }
+        else {
+          // ID hợp lệ -> Gửi lệnh phát
           this.onVideoCommand({
             isOpen: true,
             type: 'youtube',
             title: `Đang phát: ${title}`,
-            url: videoId // Gửi ID chính xác sang Player
+            url: videoId
           });
           result = { status: "playing", videoId: videoId };
-        } else {
-          // Phòng hờ nếu AI vẫn gửi query, báo lỗi để nó thử lại
-          result = { status: "error", message: "Invalid Video ID. Please use googleSearch to find the 11-character ID first." };
         }
       }
       else if (fc.name === 'enter_deep_sleep') {
         this.onDeepSleepCommand();
-        result = { status: "entering_sleep_mode" };
       }
       else if (fc.name === 'open_settings') {
         this.onOpenSettingsCommand();
-        result = { status: "settings_opened" };
-      }
-      else if (fc.name === 'set_reminder') {
-        result = { status: "reminder_set" };
-      }
-      else if (fc.name === 'report_language_change') {
-        const lang = fc.args.language || "Unknown";
-        this.onNotification(`Đang dịch ngôn ngữ: ${lang}`);
-        result = { status: "reported" };
       }
       else if (fc.name === 'search_legal_docs') {
         const query = (fc.args.query || "").toString().toLowerCase();
         const context = this.currentSettings?.fileContext || "";
-
         if (!context) {
-          result = { found: false, message: "Documents empty." };
+          result = { found: false, message: "Empty Knowledge Base." };
         } else {
           const paragraphs = context.split(/\n\s*\n/);
-          const matches = paragraphs
-            .filter(p => p.toLowerCase().includes(query))
-            .slice(0, 3)
-            .join("\n---\n");
-          result = { found: !!matches, content: matches || "No info found." };
+          const matches = paragraphs.filter(p => p.toLowerCase().includes(query)).slice(0, 3).join("\n");
+          result = { found: !!matches, content: matches || "Not found." };
         }
       }
 
