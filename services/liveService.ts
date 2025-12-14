@@ -120,11 +120,18 @@ export class LiveService {
       const langB = LANGUAGE_NAMES[settings.translationLangB || 'en'] || 'English';
 
       systemInstruction = `
-      ROLE: Professional Bi-directional Interpreter.
+      ACT AS A PROFESSIONAL INTERPRETER DEVICE.
       LANGUAGES: ${langA} <-> ${langB}.
-      OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately.
-      Call 'report_language_change' only when language switches.
-      OUTPUT: Translate audio ONLY. No chit-chat.
+      
+      CRITICAL RULES:
+      1. LISTEN to the input audio.
+      2. DETECT the language automatically.
+      3. IF input is ${langA} -> SPEAK ONLY the translation in ${langB}.
+      4. IF input is ${langB} -> SPEAK ONLY the translation in ${langA}.
+      5. DO NOT speak English unless it is one of the target languages.
+      6. DO NOT add conversational fillers like "Here is the translation", "In English that means", or "Ok".
+      7. DO NOT repeat the original text.
+      8. TRANSLATE DIRECTLY and IMMEDIATELY.
       `;
       activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
@@ -154,11 +161,15 @@ export class LiveService {
       const audioCtx = getAudioContext();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // Chỉ sử dụng customTools, không dùng googleSearch native để tránh conflict logic
+      // Configure tools based on mode
       const toolsConfig: any[] = [
-        { functionDeclarations: activeTools },
-        { googleSearch: {} } // Vẫn giữ để tra cứu thông tin, nhưng không dùng cho video ID nữa
+        { functionDeclarations: activeTools }
       ];
+
+      // Enable Google Search ONLY for Assistant mode, NOT Translator to prevent distraction/hallucination.
+      if (mode !== 'translator') {
+        toolsConfig.push({ googleSearch: {} });
+      }
 
       const modelConfig: any = {
         responseModalities: [Modality.AUDIO],
