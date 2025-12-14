@@ -2,18 +2,16 @@ import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } f
 import { UserSettings, EyeState, Emotion, VideoState, UserLocation, AppMode } from "../types";
 import { getAudioContext, float32ToInt16, downsampleBuffer, arrayBufferToBase64, int16ToFloat32, base64ToArrayBuffer } from "../utils/audioUtils";
 
-// --- 1. CẤU HÌNH TOOL CHẶT CHẼ HƠN ---
 const customTools: FunctionDeclaration[] = [
   {
     name: "play_youtube_video",
-    description: "Plays a YouTube video. EXECUTION RULE: Only call this tool if you have successfully found a REAL 11-character Video ID via Google Search. DO NOT GUESS. Input must be the ID (e.g. dQw4w9WgXcQ), not the title.",
+    description: "Search and play a video on YouTube. Use this when the user asks to play music or watch a video.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        videoId: { type: Type.STRING, description: "The exact 11-character YouTube Video ID (e.g. 'e-ORhEE9VVg'). Must NOT be a search term." },
-        title: { type: Type.STRING, description: "The exact title of the video found in search results" }
+        search_query: { type: Type.STRING, description: "The exact keywords or title of the video the user wants to watch (e.g. 'Son Tung MTP', 'Fireworks in Hong Kong'). Do NOT try to guess the Video ID." }
       },
-      required: ["videoId", "title"]
+      required: ["search_query"]
     }
   },
   {
@@ -30,7 +28,7 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "enter_deep_sleep",
-    description: "Enter deep sleep mode (Always On Display).",
+    description: "Enter deep sleep mode (Always On Display) when the user says goodnight or wants to stop interacting.",
     parameters: {
       type: Type.OBJECT,
       properties: {},
@@ -38,7 +36,7 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "open_settings",
-    description: "Open the settings menu.",
+    description: "Open the settings menu when the user asks to open settings.",
     parameters: {
       type: Type.OBJECT,
       properties: {},
@@ -46,22 +44,22 @@ const customTools: FunctionDeclaration[] = [
   },
   {
     name: "report_language_change",
-    description: "Report detected language change.",
+    description: "Report the detected language when it changes during translation.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        language: { type: Type.STRING, description: "Detected language name" }
+        language: { type: Type.STRING, description: "The detected language name" }
       },
       required: ["language"]
     }
   },
   {
     name: "search_legal_docs",
-    description: "Search information in the uploaded knowledge base.",
+    description: "Search for specific information in the provided knowledge base/documents.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        query: { type: Type.STRING, description: "Keyword to search" }
+        query: { type: Type.STRING, description: "The keyword to search for" }
       },
       required: ["query"]
     }
@@ -92,8 +90,10 @@ export class LiveService {
   private audioSources = new Set<AudioBufferSourceNode>();
   private isInterrupted = false;
 
+  // Transcription buffer
   private currentInputTranscription = "";
   private currentOutputTranscription = "";
+
   private currentSettings: UserSettings | null = null;
 
   public onStateChange: (state: EyeState) => void = () => { };
@@ -120,33 +120,31 @@ export class LiveService {
       const langB = LANGUAGE_NAMES[settings.translationLangB || 'en'] || 'English';
 
       systemInstruction = `
-      ROLE: Bi-directional Interpreter (${langA} <-> ${langB}).
-      TASK: Translate audio instantly. No chit-chat.
+      ROLE: Professional Bi-directional Interpreter.
+      LANGUAGES: ${langA} <-> ${langB}.
+      OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately.
+      Call 'report_language_change' only when language switches.
+      OUTPUT: Translate audio ONLY. No chit-chat.
       `;
       activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
       const userContext = settings.userVoiceSample
-        ? `IMPORTANT: User is ${settings.userName}.`
+        ? `IMPORTANT: Main User is ${settings.userName}. Verify voice identity if needed.`
         : `User: "${settings.userName}".`;
 
       const kbContext = settings.fileContext
-        ? `\nKNOWLEDGE BASE:\n${settings.fileContext}\nCheck this first.`
+        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Check Knowledge Base first for answers.`
         : "";
 
-      // --- 2. CẬP NHẬT PROMPT HỆ THỐNG MẠNH MẼ ---
-      // Hướng dẫn chi tiết cách tìm kiếm và tránh Taylor Swift (hallucination phổ biến)
+      // --- SYSTEM INSTRUCTION (Đã đơn giản hóa để tránh ảo giác) ---
       systemInstruction = `
-      Role: NaNa, an AI assistant. ${userContext}
+      Role: NaNa, a witty assistant. ${userContext}
       CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}.
+      PERSONA: Speak Vietnamese naturally.
       
-      *** STRICT VIDEO SEARCH PROTOCOL ***
-      1. When user asks for a video (e.g. "Pháo hoa Hồng Kông", "Thịnh Suy"), YOU MUST SEARCH GOOGLE FIRST.
-      2. USE TOOL: googleSearch. Query format: "youtube video [Exact Keywords] site:youtube.com".
-      3. ANALYZE RESULTS: Look for a link like "www.youtube.com/watch?v=XXXXXXXXXXX".
-      4. EXTRACT ID: The "v=" parameter is the ID. It is ALWAYS 11 characters (letters, numbers, -, _).
-      5. VERIFY: Does the video title match the user request? If user asked for "Fireworks", DO NOT play "Taylor Swift" music video unless explicitly asked.
-      6. EXECUTE: Call 'play_youtube_video' with the extracted ID.
-      7. FAILURE: If you can't find a link, say "Tôi không tìm thấy video đó". DO NOT MAKE UP AN ID.
+      VIDEO INSTRUCTION:
+      When asked to play a video, simply call 'play_youtube_video' with the user's EXACT keywords (e.g. "Pháo hoa Hồng Kông"). 
+      DO NOT try to guess the ID. DO NOT make up fake IDs.
       
       ${kbContext}
       `;
@@ -156,9 +154,10 @@ export class LiveService {
       const audioCtx = getAudioContext();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
+      // Chỉ sử dụng customTools, không dùng googleSearch native để tránh conflict logic
       const toolsConfig: any[] = [
         { functionDeclarations: activeTools },
-        { googleSearch: {} }
+        { googleSearch: {} } // Vẫn giữ để tra cứu thông tin, nhưng không dùng cho video ID nữa
       ];
 
       const modelConfig: any = {
@@ -166,6 +165,8 @@ export class LiveService {
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
         systemInstruction: systemInstruction,
         tools: toolsConfig,
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
       };
 
       if (settings.optimizeLatency) {
@@ -186,12 +187,16 @@ export class LiveService {
           onerror: (e: any) => {
             this.onStateChange(EyeState.IDLE);
             let msg = "Lỗi kết nối.";
-            try {
-              const rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
-              if (rawMsg.includes("404")) msg = "Lỗi API: Model không tồn tại (404).";
-              else if (rawMsg.includes("403")) msg = "Lỗi API Key: Không có quyền (403).";
-              else if (rawMsg.includes("Network")) msg = "Lỗi mạng.";
-            } catch { }
+            let rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+
+            if (rawMsg.includes("Network") || rawMsg.includes("fetch")) {
+              msg = "Lỗi mạng: Kiểm tra kết nối Internet.";
+            } else if (rawMsg.includes("404") || rawMsg.includes("not found")) {
+              msg = "Lỗi API: Model không tìm thấy hoặc Project bị xóa.";
+            } else if (rawMsg.includes("403") || rawMsg.includes("Permission")) {
+              msg = "Lỗi API Key: Không có quyền truy cập.";
+            }
+
             this.onError(msg);
             this.onDisconnect();
           }
@@ -213,17 +218,23 @@ export class LiveService {
     console.log("Connected to Gemini Live");
     this.startAudioInput();
     this.onStateChange(EyeState.LISTENING);
+
     if (this.currentSettings?.userVoiceSample && this.session) {
       try {
         this.session.sendRealtimeInput([{
           mimeType: "audio/pcm;rate=16000",
           data: this.currentSettings.userVoiceSample
         }]);
-        setTimeout(() => this.session.sendRealtimeInput([{ text: "System: Voice signature sent." }]), 500);
+        setTimeout(() => {
+          this.session.sendRealtimeInput([{
+            text: `SYSTEM NOTE: User Voice Signature provided.`
+          }]);
+        }, 500);
       } catch (e) { }
     }
   }
 
+  // --- PHỤC HỒI LOGIC CHAT HISTORY ---
   private async handleMessage(message: LiveServerMessage) {
     const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (audioData && !this.isInterrupted) {
@@ -234,10 +245,37 @@ export class LiveService {
     if (message.serverContent?.interrupted) {
       this.stopAudioPlayback();
       this.isInterrupted = true;
+      this.currentOutputTranscription = ""; // Clear buffer on interrupt
     }
 
+    // 1. Xử lý Input (Lời người nói)
+    if (message.serverContent?.inputTranscription?.text) {
+      this.currentInputTranscription += message.serverContent.inputTranscription.text;
+      this.onTranscript(this.currentInputTranscription, true, false); // isFinal = false
+    }
+
+    // 2. Xử lý Output (Lời AI nói)
+    if (message.serverContent?.outputTranscription?.text) {
+      this.currentOutputTranscription += message.serverContent.outputTranscription.text;
+      this.onTranscript(this.currentOutputTranscription, false, false); // isFinal = false
+    }
+
+    // 3. Khi lượt nói hoàn tất (Turn Complete) -> Chốt đoạn chat
     if (message.serverContent?.turnComplete) {
       this.isInterrupted = false;
+
+      // Chốt câu của User
+      if (this.currentInputTranscription.trim()) {
+        this.onTranscript(this.currentInputTranscription, true, true); // isFinal = true
+        this.currentInputTranscription = "";
+      }
+
+      // Chốt câu của AI
+      if (this.currentOutputTranscription.trim()) {
+        this.onTranscript(this.currentOutputTranscription, false, true); // isFinal = true
+        this.currentOutputTranscription = "";
+      }
+
       setTimeout(() => {
         if (this.audioSources.size === 0) this.onStateChange(EyeState.LISTENING);
       }, 200);
@@ -251,48 +289,55 @@ export class LiveService {
       console.log("Tool Call:", fc.name, fc.args);
       let result: any = { status: "ok" };
 
-      // --- 3. LOGIC KIỂM DUYỆT (VALIDATION) NGHIÊM NGẶT ---
+      // --- LOGIC VIDEO AN TOÀN ---
       if (fc.name === 'play_youtube_video') {
-        let videoId = (fc.args.videoId || "").toString().trim();
-        let title = (fc.args.title || "YouTube Video").toString();
+        const query = (fc.args.search_query || "").toString().trim();
 
-        // Regex kiểm tra ID chuẩn của YouTube (11 ký tự, gồm a-z, A-Z, 0-9, -, _)
-        const youtubeIdRegex = /^[a-zA-Z0-9_-]{11}$/;
-
-        if (!youtubeIdRegex.test(videoId)) {
-          console.error(`Invalid Video ID detected: ${videoId}`);
-          // BÁO LỖI NGƯỢC LẠI CHO AI để nó tự sửa
-          result = {
-            status: "error",
-            message: `ERROR: The ID '${videoId}' is invalid. YouTube IDs must be exactly 11 characters. You likely hallucinated this ID. Please use 'googleSearch' again to find the REAL link (e.g. youtube.com/watch?v=...) and extract the correct 'v' parameter.`
-          };
-        }
-        else {
-          // ID hợp lệ -> Gửi lệnh phát
-          this.onVideoCommand({
-            isOpen: true,
-            type: 'youtube',
-            title: `Đang phát: ${title}`,
-            url: videoId
-          });
-          result = { status: "playing", videoId: videoId };
-        }
+        // Luôn gửi lệnh mở video với query
+        // VideoPlayer.tsx sẽ lo việc hiển thị thẻ Preview nếu là query
+        this.onVideoCommand({
+          isOpen: true,
+          type: 'youtube',
+          title: `Tìm kiếm: ${query}`,
+          url: query
+        });
+        result = { status: "playing", query: query };
       }
       else if (fc.name === 'enter_deep_sleep') {
         this.onDeepSleepCommand();
+        result = { status: "entering_sleep_mode" };
       }
       else if (fc.name === 'open_settings') {
         this.onOpenSettingsCommand();
+        result = { status: "settings_opened" };
+      }
+      else if (fc.name === 'set_reminder') {
+        result = { status: "reminder_set" };
+      }
+      else if (fc.name === 'report_language_change') {
+        const lang = fc.args.language || "Unknown";
+        this.onNotification(`Đang dịch ngôn ngữ: ${lang}`);
+        result = { status: "reported" };
       }
       else if (fc.name === 'search_legal_docs') {
         const query = (fc.args.query || "").toString().toLowerCase();
         const context = this.currentSettings?.fileContext || "";
+
         if (!context) {
-          result = { found: false, message: "Empty Knowledge Base." };
+          result = { found: false, message: "Documents empty." };
         } else {
+          // Logic tìm kiếm đơn giản
           const paragraphs = context.split(/\n\s*\n/);
-          const matches = paragraphs.filter(p => p.toLowerCase().includes(query)).slice(0, 3).join("\n");
-          result = { found: !!matches, content: matches || "Not found." };
+          const matches = paragraphs
+            .filter(p => p.toLowerCase().includes(query))
+            .slice(0, 3)
+            .join("\n---\n");
+
+          if (matches) {
+            result = { found: true, content: matches };
+          } else {
+            result = { found: false, message: "Not found in documents." };
+          }
         }
       }
 
@@ -304,6 +349,7 @@ export class LiveService {
     }
   }
 
+  // --- CÁC HÀM XỬ LÝ AUDIO (Giữ nguyên) ---
   private async startAudioInput() {
     try {
       this.inputAudioContext = getAudioContext();
