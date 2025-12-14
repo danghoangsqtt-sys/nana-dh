@@ -1,18 +1,20 @@
-
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { UserSettings, EyeState, Emotion, VideoState, UserLocation, AppMode } from "../types";
 import { getAudioContext, float32ToInt16, downsampleBuffer, arrayBufferToBase64, int16ToFloat32, base64ToArrayBuffer } from "../utils/audioUtils";
 
+// --- CẬP NHẬT CẤU HÌNH TOOL ---
 const customTools: FunctionDeclaration[] = [
   {
     name: "play_youtube_video",
-    description: "Search and play a video or music on YouTube.",
+    // CẬP NHẬT: Mô tả rõ ràng bắt buộc phải là ID
+    description: "Plays a specific YouTube video using its ID. CRITICAL: You MUST provide a valid 11-character YouTube Video ID (e.g., dQw4w9WgXcQ), NOT a search term. If you don't have the ID, use 'googleSearch' tool to find it first.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        search_query: { type: Type.STRING, description: "The title or keywords of the video to play" }
+        videoId: { type: Type.STRING, description: "The 11-character YouTube Video ID found via Google Search (e.g., 'e-ORhEE9VVg')" },
+        title: { type: Type.STRING, description: "The title of the video for display" }
       },
-      required: ["search_query"]
+      required: ["videoId"]
     }
   },
   {
@@ -54,7 +56,6 @@ const customTools: FunctionDeclaration[] = [
       required: ["language"]
     }
   },
-  // --- NEW LOCAL RAG TOOL ---
   {
     name: "search_legal_docs",
     description: "Search for specific information, laws, or regulations within the uploaded document/knowledge base. Use this when the user asks about specific details contained in the file context.",
@@ -84,7 +85,6 @@ export class LiveService {
   private source: MediaStreamAudioSourceNode | null = null;
   private gainNode: GainNode | null = null;
 
-  // Filters
   private lowPassFilter: BiquadFilterNode | null = null;
   private highPassFilter: BiquadFilterNode | null = null;
 
@@ -95,8 +95,6 @@ export class LiveService {
 
   private currentInputTranscription = "";
   private currentOutputTranscription = "";
-
-  // Store settings locally for audio graph config
   private currentSettings: UserSettings | null = null;
 
   public onStateChange: (state: EyeState) => void = () => { };
@@ -125,45 +123,47 @@ export class LiveService {
       systemInstruction = `
       ROLE: Professional Bi-directional Interpreter.
       LANGUAGES: ${langA} <-> ${langB}.
-      
-      OBJECTIVE:
-      1. Listen to the input audio continuously.
-      2. DETECT the language automatically.
-      3. IF input is ${langA} -> Translate to ${langB}.
-      4. IF input is ${langB} -> Translate to ${langA}.
-      5. Call function 'report_language_change' ONLY when the language switches.
-      6. OUTPUT: Translate audio ONLY. Do NOT chat. Do NOT ask questions. Keep the original tone.
+      OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately.
+      Call 'report_language_change' only when language switches.
+      OUTPUT: Translate audio ONLY. No chit-chat.
       `;
-      // In translator mode, we remove tools that might distract the pure translation task
       activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
-      // Main Assistant Mode with Voice Identity Enforcement
       const userContext = settings.userVoiceSample
-        ? `IMPORTANT: You have a "Main User" named ${settings.userName}. You will receive a voice sample at the start. MEMORIZE it. If a different voice speaks, you must ask: "Bạn không phải là ${settings.userName} phải không?" before obeying major commands.`
+        ? `IMPORTANT: Main User is ${settings.userName}. Verify voice identity if needed.`
         : `User: "${settings.userName}".`;
 
-      // --- 1. CRITICAL FIX: Removed .substring(0, 500) limit ---
-      // We now pass the full fileContext. Note: Be mindful that extremely large contexts (>1M tokens) might impact latency slightly, 
-      // but Gemini Flash 2.5 handles large context very well.
       const kbContext = settings.fileContext
-        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Use the above Knowledge Base to answer user questions accurately. If the info is in the text, cite it.`
+        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Check Knowledge Base first for answers.`
         : "";
 
-      systemInstruction = `Role: NaNa, a witty assistant. ${userContext} CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}. SPEED: Reply INSTANTLY (under 10 words). PERSONA: Speak Vietnamese naturally. ${kbContext}`;
+      // --- CẬP NHẬT SYSTEM INSTRUCTION ---
+      // Thêm quy trình xử lý Video bắt buộc
+      systemInstruction = `
+      Role: NaNa, a witty assistant. ${userContext}
+      CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}.
+      PERSONA: Speak Vietnamese naturally.
+      
+      IMPORTANT VIDEO PROTOCOL:
+      When the user asks to play a video or music:
+      1. DO NOT guess the ID.
+      2. Call 'googleSearch' with query "youtube video id for [song/video name]".
+      3. Extract the 11-character Video ID from search results.
+      4. Call 'play_youtube_video' with that ID.
+      
+      ${kbContext}
+      `;
     }
 
     try {
       const audioCtx = getAudioContext();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // --- 2. GOOGLE SEARCH INTEGRATION ---
-      // We combine custom function declarations with the built-in googleSearch tool
       const toolsConfig: any[] = [
         { functionDeclarations: activeTools },
-        { googleSearch: {} } // Added Google Search grounding
+        { googleSearch: {} } // Đảm bảo Google Search được kích hoạt
       ];
 
-      // Base configuration
       const modelConfig: any = {
         responseModalities: [Modality.AUDIO],
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
@@ -190,38 +190,16 @@ export class LiveService {
           },
           onerror: (e: any) => {
             this.onStateChange(EyeState.IDLE);
-
             let msg = "Lỗi kết nối.";
-            let rawMsg = "";
+            let rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
 
-            if (e instanceof Error) {
-              rawMsg = e.message;
-            } else if (typeof e === 'string') {
-              rawMsg = e;
-            } else if ((e as any).message) {
-              rawMsg = (e as any).message;
-            } else {
-              try {
-                rawMsg = JSON.stringify(e);
-              } catch {
-                rawMsg = "Unknown Error Event";
-              }
+            if (rawMsg.includes("Network") || rawMsg.includes("fetch")) {
+              msg = "Lỗi mạng: Kiểm tra kết nối Internet.";
+            } else if (rawMsg.includes("404") || rawMsg.includes("not found")) {
+              msg = "Lỗi API: Model không tìm thấy hoặc Project bị xóa.";
+            } else if (rawMsg.includes("403") || rawMsg.includes("Permission")) {
+              msg = "Lỗi API Key: Không có quyền truy cập.";
             }
-
-            if (rawMsg.includes("Network error") || rawMsg.includes("Failed to fetch") || rawMsg.includes("network")) {
-              console.warn("Gemini Live Network Error (Expected):", rawMsg);
-              msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
-            } else {
-              console.error("Session error event:", e);
-              msg = rawMsg || "Lỗi không xác định.";
-            }
-
-            if (msg.toLowerCase().includes("not found") || msg.includes("404")) {
-              msg = "Requested entity was not found (404).";
-            } else if (msg.toLowerCase().includes("permission denied") || msg.includes("403") || msg.includes("401")) {
-              msg = "Invalid API Key or Permission Denied.";
-            }
-
             this.onError(msg);
             this.onDisconnect();
           }
@@ -229,26 +207,12 @@ export class LiveService {
       };
 
       this.sessionPromise = this.ai.live.connect(config);
-      const session = await this.sessionPromise;
-
-      if (!this.sessionPromise) {
-        console.log("Session connected but service was disconnected. Closing now.");
-        try { session.close(); } catch (e) { }
-        return;
-      }
-      this.session = session;
+      this.session = await this.sessionPromise;
 
     } catch (error: any) {
-      console.error("Connect failed exception:", error);
+      console.error("Connect failed:", error);
       this.onStateChange(EyeState.IDLE);
-
-      let msg = error.message || "Không thể kết nối.";
-      if (msg.includes("404")) msg = "Requested entity was not found (404).";
-      if (msg.toLowerCase().includes("network error") || msg.toLowerCase().includes("failed to fetch")) {
-        msg = "Lỗi mạng: Vui lòng kiểm tra kết nối Internet.";
-      }
-
-      this.onError(msg);
+      this.onError(error.message || "Không thể kết nối.");
       this.onDisconnect();
     }
   }
@@ -258,24 +222,18 @@ export class LiveService {
     this.startAudioInput();
     this.onStateChange(EyeState.LISTENING);
 
-    // VOICE IDENTITY INJECTION
     if (this.currentSettings?.userVoiceSample && this.session) {
-      console.log("Injecting Voice Identity Sample...");
       try {
         this.session.sendRealtimeInput([{
           mimeType: "audio/pcm;rate=16000",
           data: this.currentSettings.userVoiceSample
         }]);
-
         setTimeout(() => {
           this.session.sendRealtimeInput([{
-            text: `SYSTEM NOTE: The audio chunk I just sent is the VOICE SIGNATURE of the Main User (${this.currentSettings?.userName}). Use this to distinguish the owner from others. If you hear a different voice, be skeptical.`
+            text: `SYSTEM NOTE: User Voice Signature provided.`
           }]);
         }, 500);
-
-      } catch (e) {
-        console.error("Failed to inject voice sample", e);
-      }
+      } catch (e) { }
     }
   }
 
@@ -287,7 +245,7 @@ export class LiveService {
     }
 
     if (message.serverContent?.interrupted) {
-      console.log("Server detected interruption");
+      console.log("Interrupted");
       this.stopAudioPlayback();
       this.isInterrupted = true;
       this.currentOutputTranscription = "";
@@ -326,11 +284,24 @@ export class LiveService {
       console.log("Tool Call:", fc.name, fc.args);
       let result: any = { status: "ok" };
 
+      // --- CẬP NHẬT LOGIC PLAY VIDEO ---
       if (fc.name === 'play_youtube_video') {
-        const rawQuery = fc.args.search_query || "";
-        const query = rawQuery.replace(/['"]/g, "").trim();
-        this.onVideoCommand({ isOpen: true, type: 'youtube', title: `Đang phát: ${query}`, url: query });
-        result = { status: "playing", video: query };
+        // Nhận ID thay vì Search Query
+        const videoId = (fc.args.videoId || "").toString().trim();
+        const title = (fc.args.title || "YouTube Video").toString();
+
+        if (videoId && videoId.length === 11) {
+          this.onVideoCommand({
+            isOpen: true,
+            type: 'youtube',
+            title: `Đang phát: ${title}`,
+            url: videoId // Gửi ID chính xác sang Player
+          });
+          result = { status: "playing", videoId: videoId };
+        } else {
+          // Phòng hờ nếu AI vẫn gửi query, báo lỗi để nó thử lại
+          result = { status: "error", message: "Invalid Video ID. Please use googleSearch to find the 11-character ID first." };
+        }
       }
       else if (fc.name === 'enter_deep_sleep') {
         this.onDeepSleepCommand();
@@ -348,28 +319,19 @@ export class LiveService {
         this.onNotification(`Đang dịch ngôn ngữ: ${lang}`);
         result = { status: "reported" };
       }
-      // --- 3. IMPLEMENT LOCAL RAG LOGIC ---
       else if (fc.name === 'search_legal_docs') {
         const query = (fc.args.query || "").toString().toLowerCase();
         const context = this.currentSettings?.fileContext || "";
 
         if (!context) {
-          result = { found: false, message: "Documents empty. Please upload a .txt file in settings." };
+          result = { found: false, message: "Documents empty." };
         } else {
-          // Simple Paragraph splitting and matching logic
-          const paragraphs = context.split(/\n\s*\n/); // Split by empty lines
+          const paragraphs = context.split(/\n\s*\n/);
           const matches = paragraphs
             .filter(p => p.toLowerCase().includes(query))
-            .slice(0, 3) // Top 3 matches
-            .join("\n---\n"); // Separator
-
-          if (matches) {
-            console.log(`RAG Search found matches for '${query}'`);
-            result = { found: true, content: matches };
-          } else {
-            // Fallback: Try looser search if direct match fails, or return not found
-            result = { found: false, message: `No direct information found for '${query}' in the document.` };
-          }
+            .slice(0, 3)
+            .join("\n---\n");
+          result = { found: !!matches, content: matches || "No info found." };
         }
       }
 
@@ -406,20 +368,14 @@ export class LiveService {
       });
 
       this.source = this.inputAudioContext.createMediaStreamSource(this.stream);
-
-      // Filters
       this.highPassFilter = this.inputAudioContext.createBiquadFilter();
       this.highPassFilter.type = "highpass";
       this.highPassFilter.frequency.value = 150;
-
       this.lowPassFilter = this.inputAudioContext.createBiquadFilter();
       this.lowPassFilter.type = "lowpass";
       this.lowPassFilter.frequency.value = 6000;
-
       this.gainNode = this.inputAudioContext.createGain();
-      // Apply Sensitivity setting (Default 1.5)
       this.gainNode.gain.value = this.currentSettings?.voiceSensitivity || 1.5;
-
       this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
 
       this.source.connect(this.highPassFilter);
@@ -433,32 +389,24 @@ export class LiveService {
       this.processor.onaudioprocess = (e) => {
         const isAIPlaying = this.audioSources.size > 0;
         let inputData = e.inputBuffer.getChannelData(0);
-
         let sum = 0;
         for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
         const rms = Math.sqrt(sum / inputData.length);
         this.onVolumeChange(rms * 100);
-
         const noiseThreshold = isAIPlaying ? 0.03 : 0.015;
-
         if (rms < noiseThreshold) {
-          for (let i = 0; i < inputData.length; i++) {
-            inputData[i] = 0;
-          }
+          for (let i = 0; i < inputData.length; i++) inputData[i] = 0;
         }
-
         if (sourceSampleRate !== 16000) {
           inputData = downsampleBuffer(inputData as any, sourceSampleRate, 16000) as any;
         }
-
         this.sessionPromise?.then(session => {
           try {
             const pcm16 = float32ToInt16(inputData as any);
             const base64 = arrayBufferToBase64(pcm16.buffer as any);
             session.sendRealtimeInput({ media: { mimeType: 'audio/pcm;rate=16000', data: base64 } });
           } catch (err) { }
-        }).catch(() => {
-        });
+        }).catch(() => { });
       };
     } catch (error: any) {
       console.error("Mic error:", error);
@@ -471,24 +419,19 @@ export class LiveService {
   private async playAudioChunk(base64: string) {
     const audioCtx = getAudioContext();
     if (audioCtx.state === 'suspended') await audioCtx.resume();
-
     if (!audioCtx || this.isInterrupted) return;
     try {
       const arrayBuffer = base64ToArrayBuffer(base64);
       const float32Data = int16ToFloat32(arrayBuffer);
       const buffer = audioCtx.createBuffer(1, float32Data.length, 24000);
-
       buffer.copyToChannel(float32Data as any, 0);
-
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(audioCtx.destination);
-
       const currentTime = audioCtx.currentTime;
       if (this.nextStartTime < currentTime) this.nextStartTime = currentTime;
       source.start(this.nextStartTime);
       this.nextStartTime += buffer.duration;
-
       this.audioSources.add(source);
       source.onended = () => {
         this.audioSources.delete(source);
@@ -514,24 +457,12 @@ export class LiveService {
     this.gainNode?.disconnect();
     this.lowPassFilter?.disconnect();
     this.highPassFilter?.disconnect();
-
     this.stopAudioPlayback();
-
     if (this.session) {
-      try {
-        this.session.close();
-      } catch (e) {
-        console.error("Error closing session", e);
-      }
+      try { this.session.close(); } catch (e) { }
     } else if (this.sessionPromise) {
-      this.sessionPromise.then(s => {
-        try {
-          console.log("Closing pending session due to disconnect");
-          s.close();
-        } catch (e) { }
-      }).catch(() => { });
+      this.sessionPromise.then(s => { try { s.close(); } catch (e) { } }).catch(() => { });
     }
-
     this.session = null;
     this.sessionPromise = null;
   }
