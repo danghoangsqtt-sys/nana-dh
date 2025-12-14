@@ -182,125 +182,136 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
 
     return (
-        <aside
-            className={`
-        fixed lg:relative z-50 h-full bg-[#1e1e1e] border-r border-neutral-800 transition-all duration-300 ease-in-out shadow-2xl lg:shadow-none overflow-hidden
-        ${isOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full lg:translate-x-0 lg:w-0'}
-      `}
-        >
-            {/* 
-        CRITICAL FIX for Animation Split:
-        The inner container MUST have a fixed width (min-w-[18rem] / w-72).
-        This ensures that when the outer 'aside' shrinks, the inner content DOES NOT reflow or squish.
-        It just gets clipped by overflow-hidden. This keeps the header and footer completely synchronized.
-      */}
-            <div className="w-72 min-w-[18rem] h-full flex flex-col bg-[#1e1e1e]">
+        <>
+            {/* Mobile Backdrop Overlay */}
+            <div
+                className={`
+                fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300 lg:hidden
+                ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+            `}
+                onClick={toggleSidebar}
+            />
 
-                {/* --- Header --- */}
-                <div className="p-3 flex items-center justify-between shrink-0">
-                    <button
-                        onClick={toggleSidebar}
-                        className="p-2 hover:bg-neutral-700/50 rounded-full text-neutral-400 transition-colors"
-                        title="Đóng menu"
-                    >
-                        <PanelLeftClose size={20} />
-                    </button>
-                    <div className="flex-1"></div>
-                    <button
-                        onClick={onCreateSession}
-                        className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-neutral-300 transition-colors"
-                        title="Chat mới"
-                    >
-                        <Plus size={20} />
-                    </button>
-                </div>
+            <aside
+                className={`
+            fixed lg:relative z-50 h-full bg-[#1e1e1e] border-r border-neutral-800 transition-all duration-300 ease-in-out shadow-2xl lg:shadow-none overflow-hidden
+            ${isOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full lg:translate-x-0 lg:w-0'}
+          `}
+            >
+                {/* 
+            CRITICAL FIX for Animation Split:
+            The inner container MUST have a fixed width (min-w-[18rem] / w-72).
+            This ensures that when the outer 'aside' shrinks, the inner content DOES NOT reflow or squish.
+            It just gets clipped by overflow-hidden. This keeps the header and footer completely synchronized.
+          */}
+                <div className="w-72 min-w-[18rem] h-full flex flex-col bg-[#1e1e1e]">
 
-                {/* --- Mode Selector (Split into 2 buttons) --- */}
-                <div className="px-3 pb-4 pt-1 shrink-0">
-                    <div className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-2 pl-1">
-                        Chế độ hoạt động
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    {/* --- Header --- */}
+                    <div className="p-3 pt-safe-top flex items-center justify-between shrink-0">
                         <button
-                            onClick={() => onSetMode('assistant')}
-                            className={`flex flex-col items-center justify-center gap-2 py-3 px-2 rounded-xl border transition-all duration-200 ${mode === 'assistant'
-                                    ? 'bg-purple-900/30 border-purple-500/50 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
-                                    : 'bg-neutral-800/40 border-neutral-700/50 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300'
-                                }`}
+                            onClick={toggleSidebar}
+                            className="p-2 hover:bg-neutral-700/50 rounded-full text-neutral-400 transition-colors"
+                            title="Đóng menu"
                         >
-                            <Sparkles size={18} className={mode === 'assistant' ? 'text-purple-400' : ''} />
-                            <span className="text-xs font-medium">Trợ lý ảo</span>
+                            <PanelLeftClose size={20} />
                         </button>
-
+                        <div className="flex-1"></div>
                         <button
-                            onClick={() => onSetMode('translator')}
-                            className={`flex flex-col items-center justify-center gap-2 py-3 px-2 rounded-xl border transition-all duration-200 ${mode === 'translator'
-                                    ? 'bg-blue-900/30 border-blue-500/50 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
-                                    : 'bg-neutral-800/40 border-neutral-700/50 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300'
-                                }`}
+                            onClick={onCreateSession}
+                            className="p-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-neutral-300 transition-colors"
+                            title="Chat mới"
                         >
-                            <Languages size={18} className={mode === 'translator' ? 'text-blue-400' : ''} />
-                            <span className="text-xs font-medium">Phiên dịch</span>
+                            <Plus size={20} />
                         </button>
                     </div>
-                </div>
 
-                {/* --- Session List --- */}
-                <div className="flex-1 overflow-y-auto px-2 py-2 custom-scrollbar min-h-0">
-
-                    {/* Pinned Sessions */}
-                    {pinnedSessions.length > 0 && (
-                        <div className="mb-4">
-                            <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Đã ghim</div>
-                            <div className="space-y-0.5">
-                                {pinnedSessions.map(session => (
-                                    <SessionItem key={session.id} session={session} />
-                                ))}
-                            </div>
+                    {/* --- Mode Selector (Split into 2 buttons) --- */}
+                    <div className="px-3 pb-4 pt-1 shrink-0">
+                        <div className="text-[10px] font-bold text-neutral-600 uppercase tracking-widest mb-2 pl-1">
+                            Chế độ hoạt động
                         </div>
-                    )}
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={() => onSetMode('assistant')}
+                                className={`flex flex-col items-center justify-center gap-2 py-3 px-2 rounded-xl border transition-all duration-200 ${mode === 'assistant'
+                                        ? 'bg-purple-900/30 border-purple-500/50 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.15)]'
+                                        : 'bg-neutral-800/40 border-neutral-700/50 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300'
+                                    }`}
+                            >
+                                <Sparkles size={18} className={mode === 'assistant' ? 'text-purple-400' : ''} />
+                                <span className="text-xs font-medium">Trợ lý ảo</span>
+                            </button>
 
-                    {/* Recent Sessions */}
-                    <div className="mb-2">
-                        <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Gần đây</div>
-                        {recentSessions.length === 0 ? (
-                            <div className="px-3 py-4 text-center">
-                                <p className="text-xs text-neutral-600 italic">Chưa có cuộc trò chuyện nào</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-0.5">
-                                {recentSessions.map(session => (
-                                    <SessionItem key={session.id} session={session} />
-                                ))}
+                            <button
+                                onClick={() => onSetMode('translator')}
+                                className={`flex flex-col items-center justify-center gap-2 py-3 px-2 rounded-xl border transition-all duration-200 ${mode === 'translator'
+                                        ? 'bg-blue-900/30 border-blue-500/50 text-blue-200 shadow-[0_0_15px_rgba(59,130,246,0.15)]'
+                                        : 'bg-neutral-800/40 border-neutral-700/50 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-300'
+                                    }`}
+                            >
+                                <Languages size={18} className={mode === 'translator' ? 'text-blue-400' : ''} />
+                                <span className="text-xs font-medium">Phiên dịch</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* --- Session List --- */}
+                    <div className="flex-1 overflow-y-auto px-2 py-2 custom-scrollbar min-h-0">
+
+                        {/* Pinned Sessions */}
+                        {pinnedSessions.length > 0 && (
+                            <div className="mb-4">
+                                <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Đã ghim</div>
+                                <div className="space-y-0.5">
+                                    {pinnedSessions.map(session => (
+                                        <SessionItem key={session.id} session={session} />
+                                    ))}
+                                </div>
                             </div>
                         )}
+
+                        {/* Recent Sessions */}
+                        <div className="mb-2">
+                            <div className="px-3 py-1 text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Gần đây</div>
+                            {recentSessions.length === 0 ? (
+                                <div className="px-3 py-4 text-center">
+                                    <p className="text-xs text-neutral-600 italic">Chưa có cuộc trò chuyện nào</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-0.5">
+                                    {recentSessions.map(session => (
+                                        <SessionItem key={session.id} session={session} />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
+
+                    {/* --- Footer Controls --- */}
+                    <div className="p-3 border-t border-neutral-800 bg-[#1e1e1e] space-y-1 shrink-0 pb-safe-bottom">
+                        <div className="flex items-center gap-2 px-2 py-2 text-xs text-neutral-500">
+                            <MapPin size={12} className={location ? "text-green-500" : "text-neutral-600"} />
+                            <span className="truncate max-w-[160px]">
+                                {location ? `${location.lat.toFixed(2)}, ${location.lng.toFixed(2)}` : "Đang định vị..."}
+                            </span>
+                        </div>
+
+                        <button
+                            onClick={onOpenSettings}
+                            className="w-full flex items-center gap-3 px-2 py-2 hover:bg-neutral-800 rounded-lg text-sm text-neutral-300 transition-colors"
+                        >
+                            <Settings size={16} />
+                            <span>Cài đặt</span>
+                        </button>
+
+                        <div className="px-2 pt-1 flex items-center justify-between text-[10px] text-neutral-600">
+                            <span className="truncate max-w-[100px]">{settings.userName}</span>
+                        </div>
+                    </div>
+
                 </div>
-
-                {/* --- Footer Controls --- */}
-                <div className="p-3 border-t border-neutral-800 bg-[#1e1e1e] space-y-1 shrink-0">
-                    <div className="flex items-center gap-2 px-2 py-2 text-xs text-neutral-500">
-                        <MapPin size={12} className={location ? "text-green-500" : "text-neutral-600"} />
-                        <span className="truncate max-w-[160px]">
-                            {location ? `${location.lat.toFixed(2)}, ${location.lng.toFixed(2)}` : "Đang định vị..."}
-                        </span>
-                    </div>
-
-                    <button
-                        onClick={onOpenSettings}
-                        className="w-full flex items-center gap-3 px-2 py-2 hover:bg-neutral-800 rounded-lg text-sm text-neutral-300 transition-colors"
-                    >
-                        <Settings size={16} />
-                        <span>Cài đặt</span>
-                    </button>
-
-                    <div className="px-2 pt-1 flex items-center justify-between text-[10px] text-neutral-600">
-                        <span className="truncate max-w-[100px]">{settings.userName}</span>
-                    </div>
-                </div>
-
-            </div>
-        </aside>
+            </aside>
+        </>
     );
 };
 

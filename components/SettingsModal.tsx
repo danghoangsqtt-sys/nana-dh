@@ -1,9 +1,10 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
 import {
   X, User, Cpu, Info, Upload, Languages, ArrowRightLeft, Key,
   ExternalLink, ShieldCheck, RefreshCcw, Facebook, Phone, Zap,
-  Mic, Volume2, Trash2, StopCircle, Play, Coffee, ChevronRight, Check
+  Mic, Volume2, Trash2, Coffee, ChevronRight
 } from 'lucide-react';
 import { getAudioContext, float32ToInt16, arrayBufferToBase64 } from '../utils/audioUtils';
 
@@ -44,7 +45,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(0);
-  const [isPlayingSample, setIsPlayingSample] = useState(false);
 
   // Check if a key was previously saved (mask it initially)
   const hasSavedKey = !!settings.apiKey && settings.apiKey.length > 5;
@@ -145,28 +145,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[200] p-4 font-sans animate-in fade-in duration-200">
+    // Updated: h-[100dvh] ensures full height on mobile browsers (accounting for address bar)
+    <div className="fixed inset-0 h-[100dvh] bg-black/80 backdrop-blur-md flex items-center justify-center z-[200] md:p-4 font-sans animate-in fade-in duration-200">
 
-      {/* Main Card Container */}
-      <div className="bg-[#121212] border border-white/10 rounded-3xl w-full max-w-5xl h-[85vh] md:h-[600px] shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
+      {/* Main Card Container - Full Screen on Mobile (h-full), Fixed Height on Desktop */}
+      <div className="bg-[#121212] md:border md:border-white/10 w-full h-full md:max-w-5xl md:h-[600px] md:rounded-3xl shadow-2xl flex flex-col md:flex-row overflow-hidden relative">
 
         {/* --- Sidebar Navigation (Desktop) / Top Bar (Mobile) --- */}
-        <div className="md:w-64 bg-neutral-900/50 border-b md:border-b-0 md:border-r border-white/5 flex flex-col shrink-0">
+        <div className="md:w-64 bg-neutral-900/80 md:bg-neutral-900/50 border-b md:border-b-0 md:border-r border-white/5 flex flex-col shrink-0 pt-safe-top">
           {/* Header */}
-          <div className="p-6 pb-2 md:pb-6 flex items-center justify-between">
+          <div className="p-4 md:p-6 pb-2 md:pb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-900/20">
                 <span className="font-bold text-white text-sm">N</span>
               </div>
               <span className="font-semibold text-lg tracking-tight">Cài đặt</span>
             </div>
-            <button onClick={onClose} className="md:hidden p-2 text-neutral-400 hover:text-white">
+            <button onClick={onClose} className="md:hidden p-2 text-neutral-400 hover:text-white bg-white/5 rounded-full">
               <X size={20} />
             </button>
           </div>
 
           {/* Nav Items */}
-          <div className="flex md:flex-col overflow-x-auto md:overflow-visible px-4 md:px-3 gap-2 pb-4 md:pb-0 scrollbar-hide">
+          {/* Enabled visible scrollbar on mobile by using custom-scrollbar and removing scrollbar-hide */}
+          <div className="flex md:flex-col overflow-x-auto md:overflow-visible px-4 md:px-3 gap-2 pb-2 md:pb-0 custom-scrollbar">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               const Icon = tab.icon;
@@ -175,7 +177,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={`
-                                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 whitespace-nowrap md:whitespace-normal
+                                flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 whitespace-nowrap md:whitespace-normal shrink-0
                                 ${isActive
                       ? 'bg-white/10 text-white font-medium shadow-inner'
                       : 'text-neutral-400 hover:text-neutral-200 hover:bg-white/5'
@@ -192,7 +194,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
         </div>
 
         {/* --- Content Area --- */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[#0F0F0F] relative">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#0F0F0F] relative">
 
           {/* Close Button (Desktop) */}
           <button
@@ -203,8 +205,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           </button>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-            <div className="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300">
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar overscroll-contain">
+            {/* Added pb-24 to ensure bottom content clears the footer actions */}
+            <div className="max-w-2xl mx-auto space-y-8 animate-in slide-in-from-bottom-2 fade-in duration-300 pb-24 md:pb-0">
 
               {/* --- API KEY --- */}
               {activeTab === 'key' && (
@@ -594,7 +597,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           </div>
 
           {/* --- Footer Actions --- */}
-          <div className="p-4 border-t border-white/5 bg-[#121212] flex justify-end gap-3 shrink-0">
+          <div className="p-4 border-t border-white/5 bg-[#121212] flex justify-end gap-3 shrink-0 pb-safe-bottom">
             <button
               onClick={onClose}
               className="px-6 py-2.5 text-sm font-medium text-neutral-400 hover:text-white hover:bg-white/5 rounded-xl transition-all"

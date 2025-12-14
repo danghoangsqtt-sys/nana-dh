@@ -348,7 +348,8 @@ const App: React.FC = () => {
     }, [displayMessages, gemini.liveTranscript, currentSessionId]);
 
     return (
-        <div className="h-screen w-screen bg-black text-white flex font-sans overflow-hidden select-none">
+        // Use 100dvh for mobile browsers to handle address bar dynamically
+        <div className="h-[100dvh] w-screen bg-black text-white flex font-sans overflow-hidden select-none">
 
             <Toast
                 message={gemini.error ? (gemini.error.includes('entity was not found') ? "Lỗi Model. Reset Key..." : (toastMessage || gemini.error)) : toastMessage}
@@ -361,7 +362,6 @@ const App: React.FC = () => {
             <VideoPlayer state={gemini.videoState} onClose={() => gemini.setVideoState(prev => ({ ...prev, isOpen: false }))} />
 
             {/* --- Sidebar (Left) --- */}
-            {/* Sidebar logic updated to be fixed on mobile/tablet (z-index high) and relative on desktop (lg) */}
             <Sidebar
                 isOpen={isSidebarOpen}
                 toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -380,13 +380,22 @@ const App: React.FC = () => {
             />
 
             {/* --- Main Content Area --- */}
-            <main className="flex-1 relative flex flex-col h-full overflow-hidden transition-all duration-300">
+            <main
+                className="flex-1 relative flex flex-col h-full overflow-hidden transition-all duration-300"
+                onClick={() => {
+                    // Close sidebar if clicking main content on mobile
+                    if (window.innerWidth < 1024 && isSidebarOpen) setIsSidebarOpen(false);
+                }}
+            >
 
-                {/* Mobile Sidebar Toggle */}
-                <div className={`absolute top-4 left-4 z-40 transition-opacity duration-300 ${isSidebarOpen ? 'opacity-0 pointer-events-none lg:opacity-0' : 'opacity-100'}`}>
+                {/* Mobile Sidebar Toggle - Visible only when sidebar is closed on mobile */}
+                <div className={`absolute top-safe-top left-4 z-40 transition-opacity duration-300 mt-2 ${isSidebarOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                     <button
-                        onClick={() => setIsSidebarOpen(true)}
-                        className="p-3 bg-neutral-900/50 hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-white backdrop-blur-sm border border-neutral-800"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsSidebarOpen(true);
+                        }}
+                        className="p-3 bg-neutral-900/50 hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-white backdrop-blur-sm border border-neutral-800 touch-manipulation"
                     >
                         <PanelLeftOpen size={24} />
                     </button>
@@ -435,19 +444,19 @@ const App: React.FC = () => {
 
                 {/* Content Container - Switch from column to row only on Large (lg) screens */}
                 {/* On Mobile/Vertical Tablet: Flex Col. On Desktop/Landscape Tablet: Flex Row */}
-                <div className="flex-1 flex flex-col lg:flex-row items-center justify-center w-full max-w-7xl mx-auto lg:px-6 relative z-10 h-full">
+                <div className="flex-1 flex flex-col lg:flex-row items-center justify-center w-full max-w-7xl mx-auto lg:px-6 relative z-10 h-full pb-safe-bottom">
 
                     {/* 1. LEFT / TOP: NaNa Avatar */}
                     {/* Mobile: Takes 30% height (reduced from 40%). Desktop: Takes 50% width, full height */}
                     <div className={`flex flex-col items-center justify-center w-full relative group transition-all duration-1000 
                 ${gemini.active
-                            ? 'h-[30vh] min-h-[220px] lg:h-full lg:w-1/2 lg:-translate-x-10 shrink-0' // Active layout: Smaller height on mobile
+                            ? 'h-[25vh] min-h-[200px] lg:h-full lg:w-1/2 lg:-translate-x-10 shrink-0' // Active layout: Smaller height on mobile
                             : 'h-full lg:w-full' // Idle layout
                         }
             `}>
                         <div
                             className={`relative transition-all duration-700 hover:scale-105 cursor-pointer flex items-center justify-center
-                        ${gemini.active ? 'scale-[0.6] md:scale-90 lg:scale-100' : 'scale-90 md:scale-100 lg:scale-125'}
+                        ${gemini.active ? 'scale-[0.55] md:scale-90 lg:scale-100' : 'scale-90 md:scale-100 lg:scale-125'}
                     `}
                             onClick={handleMainAction}
                         >
@@ -492,11 +501,11 @@ const App: React.FC = () => {
             `}>
 
                         {/* Animated Clock */}
-                        {/* Updated: Uses fixed positioning on active to stay in top-right of screen, and scaled down on all devices */}
+                        {/* Updated: Uses safe area for positioning. Fixed at top right. */}
                         <div
                             className={`transition-all duration-1000 ease-in-out z-20 flex flex-col items-center select-none pointer-events-none
                     ${gemini.active
-                                    ? 'fixed top-3 right-3 md:top-6 md:right-8 origin-top-right scale-[0.3] md:scale-[0.4] lg:scale-[0.45] bg-black/40 backdrop-blur-xl p-4 rounded-[2rem] border border-white/10 shadow-2xl'
+                                    ? 'fixed top-safe-top right-4 origin-top-right scale-[0.3] md:scale-[0.4] lg:scale-[0.45] bg-black/40 backdrop-blur-xl p-4 rounded-[2rem] border border-white/10 shadow-2xl mt-2'
                                     : 'w-full relative scale-100 origin-center'
                                 }`}
                         >
@@ -522,7 +531,7 @@ const App: React.FC = () => {
                         {/* --- CHAT INTERFACE --- */}
                         {gemini.active ? (
                             <div
-                                className="flex-1 w-full mt-16 lg:mt-32 mb-16 lg:mb-24 overflow-y-auto px-3 lg:px-4 custom-scrollbar space-y-3 lg:space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700"
+                                className="flex-1 w-full mt-4 lg:mt-32 mb-20 lg:mb-24 overflow-y-auto px-4 custom-scrollbar space-y-3 lg:space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700"
                                 ref={chatContainerRef}
                             >
                                 {/* Empty State */}
@@ -539,7 +548,7 @@ const App: React.FC = () => {
                                 {displayMessages.map((msg, index) => (
                                     <div key={index} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`flex max-w-[90%] lg:max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                            <div className={`relative px-3 py-2 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-gradient-to-br from-neutral-800 to-neutral-700 text-white rounded-tr-sm' : (gemini.mode === 'translator' ? 'bg-blue-900/30 border border-blue-800/50 text-blue-100 rounded-tl-sm' : 'bg-purple-900/30 border border-purple-800/50 text-purple-100 rounded-tl-sm')}`}>
+                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-gradient-to-br from-neutral-800 to-neutral-700 text-white rounded-tr-sm' : (gemini.mode === 'translator' ? 'bg-blue-900/30 border border-blue-800/50 text-blue-100 rounded-tl-sm' : 'bg-purple-900/30 border border-purple-800/50 text-purple-100 rounded-tl-sm')}`}>
                                                 {msg.text}
                                             </div>
                                             {msg.role === 'model' && msg.originalText && (
@@ -556,7 +565,7 @@ const App: React.FC = () => {
                                 {gemini.liveTranscript && (
                                     <div className={`flex w-full ${gemini.liveTranscript.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`flex max-w-[90%] lg:max-w-[85%] flex-col ${gemini.liveTranscript.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                            <div className={`relative px-3 py-2 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg opacity-70 animate-pulse ${gemini.liveTranscript.role === 'user' ? 'bg-neutral-800 text-neutral-300 rounded-tr-sm' : 'bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-tl-sm'}`}>
+                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg opacity-70 animate-pulse ${gemini.liveTranscript.role === 'user' ? 'bg-neutral-800 text-neutral-300 rounded-tr-sm' : 'bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-tl-sm'}`}>
                                                 {gemini.liveTranscript.text}...
                                             </div>
                                             {gemini.liveTranscript.role === 'model' && gemini.liveTranscript.originalText && (
@@ -574,14 +583,14 @@ const App: React.FC = () => {
                             </div>
                         )}
 
-                        {/* Control Pill - Fixed at bottom of chat container */}
-                        <div className={`${gemini.active ? 'absolute bottom-3 left-0 right-0 flex justify-center z-20' : ''}`}>
+                        {/* Control Pill - Fixed at bottom of chat container with Safe Area support */}
+                        <div className={`${gemini.active ? 'absolute bottom-6 pb-safe-bottom left-0 right-0 flex justify-center z-20' : ''}`}>
                             <button
                                 onClick={handleMainAction}
-                                className={`group relative flex items-center gap-4 pl-4 pr-6 py-2 lg:py-4 rounded-full transition-all duration-500 border shadow-2xl ${gemini.active ? 'bg-neutral-900 border-neutral-800 hover:bg-red-900/20 hover:border-red-800/50 scale-90 hover:scale-100' : apiKeyReady ? 'bg-white text-black hover:scale-105 border-transparent shadow-[0_0_20px_rgba(255,255,255,0.3)]' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 border-neutral-700 animate-pulse'}`}
+                                className={`group relative flex items-center gap-4 pl-4 pr-6 py-3 lg:py-4 rounded-full transition-all duration-500 border shadow-2xl ${gemini.active ? 'bg-neutral-900 border-neutral-800 hover:bg-red-900/20 hover:border-red-800/50 scale-95 hover:scale-100' : apiKeyReady ? 'bg-white text-black hover:scale-105 border-transparent shadow-[0_0_20px_rgba(255,255,255,0.3)]' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 border-neutral-700 animate-pulse'}`}
                             >
                                 <div className={`w-3 h-3 rounded-full ${gemini.active ? 'bg-red-500 animate-pulse' : (apiKeyReady ? 'bg-black' : 'bg-yellow-500')}`}></div>
-                                <span className="text-xs lg:text-sm font-bold tracking-widest uppercase flex items-center gap-2">
+                                <span className="text-sm font-bold tracking-widest uppercase flex items-center gap-2">
                                     {!apiKeyReady && <Key size={14} />}
                                     {gemini.active ? "Stop Session" : (apiKeyReady ? (gemini.mode === 'translator' ? "Start Translator" : "Start NaNa") : "Enter API Key")}
                                 </span>
