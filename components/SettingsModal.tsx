@@ -4,7 +4,7 @@ import { UserSettings } from '../types';
 import {
   X, User, Cpu, Info, Upload, Languages, ArrowRightLeft, Key,
   ExternalLink, ShieldCheck, RefreshCcw, Facebook, Phone, Zap,
-  Mic, Volume2, Trash2, Coffee, ChevronRight
+  Mic, Volume2, Trash2, Coffee, ChevronRight, Check, Globe
 } from 'lucide-react';
 import { getAudioContext, float32ToInt16, arrayBufferToBase64 } from '../utils/audioUtils';
 
@@ -25,6 +25,9 @@ const SUPPORTED_LANGUAGES = [
   { code: 'de', name: 'Deutsch' },
   { code: 'es', name: 'Español' },
   { code: 'th', name: 'ไทย (Thai)' },
+  { code: 'ru', name: 'Русский (Russian)' },
+  { code: 'it', name: 'Italiano' },
+  { code: 'id', name: 'Bahasa Indonesia' },
 ];
 
 const TABS = [
@@ -35,6 +38,75 @@ const TABS = [
   { id: 'system', label: 'Hệ thống', icon: Cpu },
   { id: 'about', label: 'Thông tin', icon: Info },
 ] as const;
+
+// Helper Component for Mobile-Friendly Language Selection
+const LanguageSelector = ({ label, name, value, onChange, options }: {
+  label: string,
+  name: string,
+  value: string,
+  onChange: (e: any) => void,
+  options: typeof SUPPORTED_LANGUAGES
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedName = options.find(o => o.code === value)?.name || value;
+
+  return (
+    <div className="flex-1 w-full space-y-2">
+      <label className="text-xs text-neutral-400 ml-1">{label}</label>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white flex justify-between items-center hover:bg-white/5 transition-colors group"
+      >
+        <div className="flex items-center gap-2 overflow-hidden">
+          <Globe size={14} className="text-neutral-500 group-hover:text-blue-400 transition-colors" />
+          <span className="truncate text-sm font-medium">{selectedName}</span>
+        </div>
+        <ChevronRight size={16} className="rotate-90 text-neutral-500 shrink-0" />
+      </button>
+
+      {/* Custom Modal for Language List - Fixes mobile scrolling issues */}
+      {isOpen && (
+        <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsOpen(false)}>
+          <div
+            className="bg-[#1e1e1e] border border-white/10 rounded-2xl w-full max-w-xs max-h-[70vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 border-b border-white/5 flex justify-between items-center bg-[#252525] shrink-0">
+              <span className="font-semibold text-white text-sm flex items-center gap-2">
+                <Languages size={16} className="text-blue-400" />
+                {label}
+              </span>
+              <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-white/10 rounded-full text-neutral-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Scrollable List */}
+            <div className="overflow-y-auto custom-scrollbar p-2 space-y-1">
+              {options.map((opt) => (
+                <button
+                  key={opt.code}
+                  onClick={() => {
+                    onChange({ target: { name, value: opt.code } });
+                    setIsOpen(false);
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-xl flex items-center justify-between transition-all ${value === opt.code
+                      ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30'
+                      : 'text-neutral-300 hover:bg-white/5 border border-transparent'
+                    }`}
+                >
+                  <span className="text-sm">{opt.name}</span>
+                  {value === opt.code && <Check size={16} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
   const [activeTab, setActiveTab] = useState<typeof TABS[number]['id']>('key');
@@ -56,7 +128,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
 
   if (!isOpen) return null;
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement> | { target: { name: string, value: any } }) => {
     const { name, value } = e.target;
     setLocalSettings(prev => ({ ...prev, [name]: value }));
   };
@@ -464,33 +536,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                   </div>
 
                   <div className="bg-white/5 border border-white/5 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-6">
-                    <div className="flex-1 w-full space-y-2">
-                      <label className="text-xs text-neutral-400 ml-1">Ngôn ngữ A (Bạn)</label>
-                      <select
-                        name="translationLangA"
-                        value={localSettings.translationLangA || 'vi'}
-                        onChange={handleInputChange}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-blue-500"
-                      >
-                        {SUPPORTED_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-                      </select>
-                    </div>
+                    <LanguageSelector
+                      label="Ngôn ngữ A (Bạn)"
+                      name="translationLangA"
+                      value={localSettings.translationLangA || 'vi'}
+                      onChange={handleInputChange}
+                      options={SUPPORTED_LANGUAGES}
+                    />
 
-                    <div className="bg-white/10 p-2 rounded-full rotate-90 md:rotate-0 text-white/50">
+                    <div className="bg-white/10 p-2 rounded-full rotate-90 md:rotate-0 text-white/50 shrink-0">
                       <ArrowRightLeft size={20} />
                     </div>
 
-                    <div className="flex-1 w-full space-y-2">
-                      <label className="text-xs text-neutral-400 ml-1">Ngôn ngữ B (Đối phương)</label>
-                      <select
-                        name="translationLangB"
-                        value={localSettings.translationLangB || 'en'}
-                        onChange={handleInputChange}
-                        className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-blue-500"
-                      >
-                        {SUPPORTED_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
-                      </select>
-                    </div>
+                    <LanguageSelector
+                      label="Ngôn ngữ B (Đối phương)"
+                      name="translationLangB"
+                      value={localSettings.translationLangB || 'en'}
+                      onChange={handleInputChange}
+                      options={SUPPORTED_LANGUAGES}
+                    />
                   </div>
                 </div>
               )}
