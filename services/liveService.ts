@@ -5,17 +5,15 @@ import { getAudioContext, float32ToInt16, downsampleBuffer, arrayBufferToBase64,
 const customTools: FunctionDeclaration[] = [
   {
     name: "play_youtube_video",
-    description: "Play a specific YouTube video. REQUIREMENT: You MUST have a valid 11-character Video ID found via Google Search. If you only have a title, use 'googleSearch' tool first to find the ID.",
+    description: "Search and play a video on YouTube. Use this when the user asks to play music or watch a video.",
     parameters: {
       type: Type.OBJECT,
       properties: {
-        videoId: { type: Type.STRING, description: "The 11-character YouTube Video ID (e.g. dQw4w9WgXcQ)" },
-        title: { type: Type.STRING, description: "The title of the video" }
+        search_query: { type: Type.STRING, description: "The exact keywords or title of the video the user wants to watch (e.g. 'Son Tung MTP', 'Fireworks in Hong Kong'). Do NOT try to guess the Video ID." }
       },
-      required: ["videoId", "title"]
+      required: ["search_query"]
     }
   },
-  // ... (Giữ nguyên các tool khác: set_reminder, enter_deep_sleep, open_settings, report_language_change, search_legal_docs)
   {
     name: "set_reminder",
     description: "Set a timer or reminder for the user.",
@@ -68,7 +66,6 @@ const customTools: FunctionDeclaration[] = [
   }
 ];
 
-// ... (Giữ nguyên LANGUAGE_NAMES)
 const LANGUAGE_NAMES: { [key: string]: string } = {
   'vi': 'Vietnamese', 'en': 'English', 'ja': 'Japanese', 'ko': 'Korean',
   'zh': 'Chinese (Mandarin)', 'hi': 'Hindi (Indian)', 'ru': 'Russian',
@@ -77,7 +74,6 @@ const LANGUAGE_NAMES: { [key: string]: string } = {
 };
 
 export class LiveService {
-  // ... (Giữ nguyên các biến private)
   private ai: GoogleGenAI;
   private session: any = null;
   private sessionPromise: Promise<any> | null = null;
@@ -85,14 +81,19 @@ export class LiveService {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private gainNode: GainNode | null = null;
+
   private lowPassFilter: BiquadFilterNode | null = null;
   private highPassFilter: BiquadFilterNode | null = null;
+
   private stream: MediaStream | null = null;
   private nextStartTime = 0;
   private audioSources = new Set<AudioBufferSourceNode>();
   private isInterrupted = false;
+
+  // Transcription buffer
   private currentInputTranscription = "";
   private currentOutputTranscription = "";
+
   private currentSettings: UserSettings | null = null;
 
   public onStateChange: (state: EyeState) => void = () => { };
@@ -115,27 +116,35 @@ export class LiveService {
     let activeTools = customTools;
 
     if (mode === 'translator') {
-      // ... (Giữ nguyên logic translator)
       const langA = LANGUAGE_NAMES[settings.translationLangA || 'vi'] || 'Vietnamese';
       const langB = LANGUAGE_NAMES[settings.translationLangB || 'en'] || 'English';
-      systemInstruction = `ROLE: Professional Bi-directional Interpreter. LANGUAGES: ${langA} <-> ${langB}. OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately. Call 'report_language_change' only when language switches. OUTPUT: Translate audio ONLY. No chit-chat.`;
+
+      systemInstruction = `
+      ROLE: Professional Bi-directional Interpreter.
+      LANGUAGES: ${langA} <-> ${langB}.
+      OBJECTIVE: Listen, DETECT language, and TRANSLATE immediately.
+      Call 'report_language_change' only when language switches.
+      OUTPUT: Translate audio ONLY. No chit-chat.
+      `;
       activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
-      const userContext = settings.userVoiceSample ? `IMPORTANT: Main User is ${settings.userName}.` : `User: "${settings.userName}".`;
-      const kbContext = settings.fileContext ? `\n\nKNOWLEDGE BASE:\n${settings.fileContext}` : "";
+      const userContext = settings.userVoiceSample
+        ? `IMPORTANT: Main User is ${settings.userName}. Verify voice identity if needed.`
+        : `User: "${settings.userName}".`;
 
-      // --- CẬP NHẬT SYSTEM INSTRUCTION (QUAN TRỌNG) ---
-      // Bắt buộc quy trình: Search -> Extract ID -> Play
+      const kbContext = settings.fileContext
+        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Check Knowledge Base first for answers.`
+        : "";
+
+      // --- SYSTEM INSTRUCTION (Đã đơn giản hóa để tránh ảo giác) ---
       systemInstruction = `
-      Role: NaNa, a helpful assistant. ${userContext}
+      Role: NaNa, a witty assistant. ${userContext}
       CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}.
+      PERSONA: Speak Vietnamese naturally.
       
-      *** VIDEO PLAYBACK PROTOCOL ***
-      1. When user asks to play music/video (e.g. "Mở bài Một đêm say"), DO NOT guess the ID.
-      2. FIRST, call tool 'googleSearch' with query: "youtube video id for [Song Name] [Artist]".
-      3. FROM SEARCH RESULTS, extract the Video ID (11 chars after 'v=').
-      4. THEN, call 'play_youtube_video' with that extracted ID.
-      5. NEVER use a fake ID or Taylor Swift's ID unless requested.
+      VIDEO INSTRUCTION:
+      When asked to play a video, simply call 'play_youtube_video' with the user's EXACT keywords (e.g. "Pháo hoa Hồng Kông"). 
+      DO NOT try to guess the ID. DO NOT make up fake IDs.
       
       ${kbContext}
       `;
@@ -145,10 +154,10 @@ export class LiveService {
       const audioCtx = getAudioContext();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // Kết hợp custom tools và googleSearch
+      // Chỉ sử dụng customTools, không dùng googleSearch native để tránh conflict logic
       const toolsConfig: any[] = [
         { functionDeclarations: activeTools },
-        { googleSearch: {} }
+        { googleSearch: {} } // Vẫn giữ để tra cứu thông tin, nhưng không dùng cho video ID nữa
       ];
 
       const modelConfig: any = {
@@ -156,9 +165,13 @@ export class LiveService {
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
         systemInstruction: systemInstruction,
         tools: toolsConfig,
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
       };
 
-      if (settings.optimizeLatency) modelConfig.thinkingConfig = { thinkingBudget: 0 };
+      if (settings.optimizeLatency) {
+        modelConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
 
       const config: any = {
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -166,8 +179,27 @@ export class LiveService {
         callbacks: {
           onopen: this.handleOpen.bind(this),
           onmessage: this.handleMessage.bind(this),
-          onclose: (e: any) => { this.onStateChange(EyeState.IDLE); this.onDisconnect(); },
-          onerror: (e: any) => { this.onStateChange(EyeState.IDLE); this.onError("Lỗi kết nối."); this.onDisconnect(); }
+          onclose: (e: any) => {
+            console.log("Session closed", e);
+            this.onStateChange(EyeState.IDLE);
+            this.onDisconnect();
+          },
+          onerror: (e: any) => {
+            this.onStateChange(EyeState.IDLE);
+            let msg = "Lỗi kết nối.";
+            let rawMsg = typeof e === 'string' ? e : (e.message || JSON.stringify(e));
+
+            if (rawMsg.includes("Network") || rawMsg.includes("fetch")) {
+              msg = "Lỗi mạng: Kiểm tra kết nối Internet.";
+            } else if (rawMsg.includes("404") || rawMsg.includes("not found")) {
+              msg = "Lỗi API: Model không tìm thấy hoặc Project bị xóa.";
+            } else if (rawMsg.includes("403") || rawMsg.includes("Permission")) {
+              msg = "Lỗi API Key: Không có quyền truy cập.";
+            }
+
+            this.onError(msg);
+            this.onDisconnect();
+          }
         }
       };
 
@@ -175,59 +207,80 @@ export class LiveService {
       this.session = await this.sessionPromise;
 
     } catch (error: any) {
+      console.error("Connect failed:", error);
       this.onStateChange(EyeState.IDLE);
       this.onError(error.message || "Không thể kết nối.");
       this.onDisconnect();
     }
   }
 
-  // ... (Giữ nguyên handleOpen)
   private handleOpen() {
     console.log("Connected to Gemini Live");
     this.startAudioInput();
     this.onStateChange(EyeState.LISTENING);
+
     if (this.currentSettings?.userVoiceSample && this.session) {
       try {
-        this.session.sendRealtimeInput([{ mimeType: "audio/pcm;rate=16000", data: this.currentSettings.userVoiceSample }]);
-        setTimeout(() => this.session.sendRealtimeInput([{ text: "System: Voice signature sent." }]), 500);
+        this.session.sendRealtimeInput([{
+          mimeType: "audio/pcm;rate=16000",
+          data: this.currentSettings.userVoiceSample
+        }]);
+        setTimeout(() => {
+          this.session.sendRealtimeInput([{
+            text: `SYSTEM NOTE: User Voice Signature provided.`
+          }]);
+        }, 500);
       } catch (e) { }
     }
   }
 
-  // ... (Giữ nguyên handleMessage - Logic chat history đã fix ở bước trước)
+  // --- PHỤC HỒI LOGIC CHAT HISTORY ---
   private async handleMessage(message: LiveServerMessage) {
     const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (audioData && !this.isInterrupted) {
       this.playAudioChunk(audioData);
       this.onStateChange(EyeState.SPEAKING);
     }
+
     if (message.serverContent?.interrupted) {
       this.stopAudioPlayback();
       this.isInterrupted = true;
-      this.currentOutputTranscription = "";
+      this.currentOutputTranscription = ""; // Clear buffer on interrupt
     }
+
+    // 1. Xử lý Input (Lời người nói)
     if (message.serverContent?.inputTranscription?.text) {
       this.currentInputTranscription += message.serverContent.inputTranscription.text;
-      this.onTranscript(this.currentInputTranscription, true, false);
+      this.onTranscript(this.currentInputTranscription, true, false); // isFinal = false
     }
+
+    // 2. Xử lý Output (Lời AI nói)
     if (message.serverContent?.outputTranscription?.text) {
       this.currentOutputTranscription += message.serverContent.outputTranscription.text;
-      this.onTranscript(this.currentOutputTranscription, false, false);
+      this.onTranscript(this.currentOutputTranscription, false, false); // isFinal = false
     }
+
+    // 3. Khi lượt nói hoàn tất (Turn Complete) -> Chốt đoạn chat
     if (message.serverContent?.turnComplete) {
       this.isInterrupted = false;
+
+      // Chốt câu của User
       if (this.currentInputTranscription.trim()) {
-        this.onTranscript(this.currentInputTranscription, true, true);
+        this.onTranscript(this.currentInputTranscription, true, true); // isFinal = true
         this.currentInputTranscription = "";
       }
+
+      // Chốt câu của AI
       if (this.currentOutputTranscription.trim()) {
-        this.onTranscript(this.currentOutputTranscription, false, true);
+        this.onTranscript(this.currentOutputTranscription, false, true); // isFinal = true
         this.currentOutputTranscription = "";
       }
+
       setTimeout(() => {
         if (this.audioSources.size === 0) this.onStateChange(EyeState.LISTENING);
       }, 200);
     }
+
     if (message.toolCall) this.handleToolCall(message.toolCall);
   }
 
@@ -236,49 +289,55 @@ export class LiveService {
       console.log("Tool Call:", fc.name, fc.args);
       let result: any = { status: "ok" };
 
+      // --- LOGIC VIDEO AN TOÀN ---
       if (fc.name === 'play_youtube_video') {
-        const videoId = (fc.args.videoId || "").toString().trim();
-        const title = (fc.args.title || "YouTube Video").toString();
+        const query = (fc.args.search_query || "").toString().trim();
 
-        // Kiểm tra xem AI có gửi ID hay Search Query
-        // Nếu là ID (11 ký tự): Gửi ID để Auto Play
-        if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
-          this.onVideoCommand({
-            isOpen: true,
-            type: 'youtube',
-            title: `Đang phát: ${title}`,
-            url: videoId
-          });
-          result = { status: "playing", videoId: videoId };
-        } else {
-          // Nếu AI vẫn gửi tào lao (từ khóa vào ô ID), ta fallback về search query
-          // VideoPlayer sẽ hiện Card Search thay vì Iframe lỗi
-          this.onVideoCommand({
-            isOpen: true,
-            type: 'youtube',
-            title: `Tìm kiếm: ${title}`,
-            url: title // Fallback dùng title làm query
-          });
-          result = { status: "fallback_search", query: title };
-        }
+        // Luôn gửi lệnh mở video với query
+        // VideoPlayer.tsx sẽ lo việc hiển thị thẻ Preview nếu là query
+        this.onVideoCommand({
+          isOpen: true,
+          type: 'youtube',
+          title: `Tìm kiếm: ${query}`,
+          url: query
+        });
+        result = { status: "playing", query: query };
       }
-      // ... (Các tool khác giữ nguyên logic cũ)
-      else if (fc.name === 'enter_deep_sleep') { this.onDeepSleepCommand(); }
-      else if (fc.name === 'open_settings') { this.onOpenSettingsCommand(); }
-      else if (fc.name === 'set_reminder') { result = { status: "reminder_set" }; }
+      else if (fc.name === 'enter_deep_sleep') {
+        this.onDeepSleepCommand();
+        result = { status: "entering_sleep_mode" };
+      }
+      else if (fc.name === 'open_settings') {
+        this.onOpenSettingsCommand();
+        result = { status: "settings_opened" };
+      }
+      else if (fc.name === 'set_reminder') {
+        result = { status: "reminder_set" };
+      }
       else if (fc.name === 'report_language_change') {
         const lang = fc.args.language || "Unknown";
         this.onNotification(`Đang dịch ngôn ngữ: ${lang}`);
+        result = { status: "reported" };
       }
       else if (fc.name === 'search_legal_docs') {
         const query = (fc.args.query || "").toString().toLowerCase();
         const context = this.currentSettings?.fileContext || "";
+
         if (!context) {
           result = { found: false, message: "Documents empty." };
         } else {
+          // Logic tìm kiếm đơn giản
           const paragraphs = context.split(/\n\s*\n/);
-          const matches = paragraphs.filter(p => p.toLowerCase().includes(query)).slice(0, 3).join("\n---\n");
-          result = { found: !!matches, content: matches || "Not found." };
+          const matches = paragraphs
+            .filter(p => p.toLowerCase().includes(query))
+            .slice(0, 3)
+            .join("\n---\n");
+
+          if (matches) {
+            result = { found: true, content: matches };
+          } else {
+            result = { found: false, message: "Not found in documents." };
+          }
         }
       }
 
@@ -290,7 +349,7 @@ export class LiveService {
     }
   }
 
-  // ... (Giữ nguyên các hàm startAudioInput, playAudioChunk, disconnect...)
+  // --- CÁC HÀM XỬ LÝ AUDIO (Giữ nguyên) ---
   private async startAudioInput() {
     try {
       this.inputAudioContext = getAudioContext();
