@@ -73,6 +73,7 @@ const App: React.FC = () => {
 
     // Chat Scroll Ref
     const chatContainerRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null); // New anchor for scrolling
 
     // Save Sessions to LocalStorage whenever they change
     useEffect(() => {
@@ -337,15 +338,13 @@ const App: React.FC = () => {
     const currentSession = sessions.find(s => s.id === currentSessionId);
     const displayMessages = currentSession ? currentSession.messages : [];
 
-    // Auto-scroll logic
+    // Updated Auto-scroll logic: Target the end ref instead of container scrollTop
+    // This is more reliable for variable height content
     useEffect(() => {
-        if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTo({
-                top: chatContainerRef.current.scrollHeight,
-                behavior: 'smooth'
-            });
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
         }
-    }, [displayMessages, gemini.liveTranscript, currentSessionId]);
+    }, [displayMessages, gemini.liveTranscript, currentSessionId, gemini.active]);
 
     return (
         // Use 100dvh for mobile browsers to handle address bar dynamically
@@ -531,9 +530,12 @@ const App: React.FC = () => {
                         {/* --- CHAT INTERFACE --- */}
                         {gemini.active ? (
                             <div
-                                className="flex-1 w-full mt-4 lg:mt-32 mb-20 lg:mb-24 overflow-y-auto px-4 custom-scrollbar space-y-3 lg:space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700"
+                                className="flex-1 w-full mt-4 lg:mt-32 pb-40 lg:pb-0 overflow-y-auto px-4 custom-scrollbar space-y-3 lg:space-y-4 animate-in fade-in slide-in-from-bottom-10 duration-700 relative"
                                 ref={chatContainerRef}
                             >
+                                {/* Top Fade Gradient to prevent text crashing into clock on mobile */}
+                                <div className="sticky top-0 left-0 right-0 h-8 bg-gradient-to-b from-black to-transparent z-10 pointer-events-none" />
+
                                 {/* Empty State */}
                                 {displayMessages.length === 0 && !gemini.liveTranscript && (
                                     <div className="h-full flex flex-col items-center justify-center text-neutral-600 opacity-50">
@@ -548,7 +550,7 @@ const App: React.FC = () => {
                                 {displayMessages.map((msg, index) => (
                                     <div key={index} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`flex max-w-[90%] lg:max-w-[85%] flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg ${msg.role === 'user' ? 'bg-gradient-to-br from-neutral-800 to-neutral-700 text-white rounded-tr-sm' : (gemini.mode === 'translator' ? 'bg-blue-900/30 border border-blue-800/50 text-blue-100 rounded-tl-sm' : 'bg-purple-900/30 border border-purple-800/50 text-purple-100 rounded-tl-sm')}`}>
+                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg break-words ${msg.role === 'user' ? 'bg-gradient-to-br from-neutral-800 to-neutral-700 text-white rounded-tr-sm' : (gemini.mode === 'translator' ? 'bg-blue-900/30 border border-blue-800/50 text-blue-100 rounded-tl-sm' : 'bg-purple-900/30 border border-purple-800/50 text-purple-100 rounded-tl-sm')}`}>
                                                 {msg.text}
                                             </div>
                                             {msg.role === 'model' && msg.originalText && (
@@ -565,7 +567,7 @@ const App: React.FC = () => {
                                 {gemini.liveTranscript && (
                                     <div className={`flex w-full ${gemini.liveTranscript.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`flex max-w-[90%] lg:max-w-[85%] flex-col ${gemini.liveTranscript.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg opacity-70 animate-pulse ${gemini.liveTranscript.role === 'user' ? 'bg-neutral-800 text-neutral-300 rounded-tr-sm' : 'bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-tl-sm'}`}>
+                                            <div className={`relative px-4 py-2.5 lg:px-5 lg:py-3 rounded-2xl text-sm lg:text-base leading-relaxed shadow-lg opacity-70 animate-pulse break-words ${gemini.liveTranscript.role === 'user' ? 'bg-neutral-800 text-neutral-300 rounded-tr-sm' : 'bg-neutral-900 border border-neutral-800 text-neutral-300 rounded-tl-sm'}`}>
                                                 {gemini.liveTranscript.text}...
                                             </div>
                                             {gemini.liveTranscript.role === 'model' && gemini.liveTranscript.originalText && (
@@ -576,6 +578,8 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 )}
+                                {/* Scroll Anchor */}
+                                <div ref={messagesEndRef} className="h-4" />
                             </div>
                         ) : (
                             <div className="hidden lg:flex w-full max-w-lg min-h-[120px] items-center justify-center relative mt-8 text-center">
@@ -584,10 +588,10 @@ const App: React.FC = () => {
                         )}
 
                         {/* Control Pill - Fixed at bottom of chat container with Safe Area support */}
-                        <div className={`${gemini.active ? 'absolute bottom-6 pb-safe-bottom left-0 right-0 flex justify-center z-20' : ''}`}>
+                        <div className={`${gemini.active ? 'absolute bottom-6 pb-safe-bottom left-0 right-0 flex justify-center z-20 pointer-events-none' : ''}`}>
                             <button
                                 onClick={handleMainAction}
-                                className={`group relative flex items-center gap-4 pl-4 pr-6 py-3 lg:py-4 rounded-full transition-all duration-500 border shadow-2xl ${gemini.active ? 'bg-neutral-900 border-neutral-800 hover:bg-red-900/20 hover:border-red-800/50 scale-95 hover:scale-100' : apiKeyReady ? 'bg-white text-black hover:scale-105 border-transparent shadow-[0_0_20px_rgba(255,255,255,0.3)]' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 border-neutral-700 animate-pulse'}`}
+                                className={`pointer-events-auto group relative flex items-center gap-4 pl-4 pr-6 py-3 lg:py-4 rounded-full transition-all duration-500 border shadow-2xl ${gemini.active ? 'bg-neutral-900 border-neutral-800 hover:bg-red-900/20 hover:border-red-800/50 scale-95 hover:scale-100' : apiKeyReady ? 'bg-white text-black hover:scale-105 border-transparent shadow-[0_0_20px_rgba(255,255,255,0.3)]' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700 border-neutral-700 animate-pulse'}`}
                             >
                                 <div className={`w-3 h-3 rounded-full ${gemini.active ? 'bg-red-500 animate-pulse' : (apiKeyReady ? 'bg-black' : 'bg-yellow-500')}`}></div>
                                 <span className="text-sm font-bold tracking-widest uppercase flex items-center gap-2">
