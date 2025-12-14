@@ -14,12 +14,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ state, onClose }) => {
   // Regex: Chữ cái, số, gạch dưới, gạch ngang, đúng 11 ký tự
   const isVideoId = /^[a-zA-Z0-9_-]{11}$/.test(state.url);
 
-  // Xây dựng URL embed dựa trên kết quả kiểm tra
+  // Lấy origin hiện tại để đáp ứng yêu cầu bảo mật của YouTube Embed API
+  const origin = encodeURIComponent(window.location.origin);
+
+  // Xây dựng URL embed với chế độ Preview (autoplay=0) và tham số origin
   // - Nếu là ID: Dùng link embed trực tiếp
   // - Nếu là Keyword: Dùng link embed search query
   const embedSrc = isVideoId
-    ? `https://www.youtube.com/embed/${state.url}?autoplay=1&controls=1&modestbranding=1&rel=0`
-    : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(state.url)}&autoplay=1&controls=1&modestbranding=1&rel=0`;
+    ? `https://www.youtube.com/embed/${state.url}?autoplay=0&controls=1&origin=${origin}&rel=0`
+    : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(state.url)}&autoplay=0&controls=1&origin=${origin}&rel=0`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
