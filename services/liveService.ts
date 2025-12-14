@@ -53,6 +53,18 @@ const customTools: FunctionDeclaration[] = [
       },
       required: ["language"]
     }
+  },
+  // --- NEW LOCAL RAG TOOL ---
+  {
+    name: "search_legal_docs",
+    description: "Search for specific information, laws, or regulations within the uploaded document/knowledge base. Use this when the user asks about specific details contained in the file context.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        query: { type: Type.STRING, description: "The keyword or specific topic to search for in the document" }
+      },
+      required: ["query"]
+    }
   }
 ];
 
@@ -122,21 +134,34 @@ export class LiveService {
       5. Call function 'report_language_change' ONLY when the language switches.
       6. OUTPUT: Translate audio ONLY. Do NOT chat. Do NOT ask questions. Keep the original tone.
       `;
-      activeTools = customTools.filter(tool => tool.name !== 'play_youtube_video');
+      // In translator mode, we remove tools that might distract the pure translation task
+      activeTools = customTools.filter(tool => tool.name === 'report_language_change');
     } else {
       // Main Assistant Mode with Voice Identity Enforcement
       const userContext = settings.userVoiceSample
         ? `IMPORTANT: You have a "Main User" named ${settings.userName}. You will receive a voice sample at the start. MEMORIZE it. If a different voice speaks, you must ask: "Bạn không phải là ${settings.userName} phải không?" before obeying major commands.`
         : `User: "${settings.userName}".`;
 
-      systemInstruction = `Role: NaNa, a witty assistant. ${userContext} CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}. SPEED: Reply INSTANTLY (under 10 words). PERSONA: Speak Vietnamese naturally. Knowledge: ${settings.fileContext.substring(0, 500)}`;
+      // --- 1. CRITICAL FIX: Removed .substring(0, 500) limit ---
+      // We now pass the full fileContext. Note: Be mindful that extremely large contexts (>1M tokens) might impact latency slightly, 
+      // but Gemini Flash 2.5 handles large context very well.
+      const kbContext = settings.fileContext
+        ? `\n\nKNOWLEDGE BASE (Priority Reference):\n${settings.fileContext}\n\nINSTRUCTION: Use the above Knowledge Base to answer user questions accurately. If the info is in the text, cite it.`
+        : "";
+
+      systemInstruction = `Role: NaNa, a witty assistant. ${userContext} CONTEXT: Location: ${location ? `${location.lat}, ${location.lng}` : "Unknown"}. SPEED: Reply INSTANTLY (under 10 words). PERSONA: Speak Vietnamese naturally. ${kbContext}`;
     }
 
     try {
       const audioCtx = getAudioContext();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      const toolsConfig: any[] = [{ functionDeclarations: activeTools }];
+      // --- 2. GOOGLE SEARCH INTEGRATION ---
+      // We combine custom function declarations with the built-in googleSearch tool
+      const toolsConfig: any[] = [
+        { functionDeclarations: activeTools },
+        { googleSearch: {} } // Added Google Search grounding
+      ];
 
       // Base configuration
       const modelConfig: any = {
@@ -234,18 +259,14 @@ export class LiveService {
     this.onStateChange(EyeState.LISTENING);
 
     // VOICE IDENTITY INJECTION
-    // If user has a saved voice sample, send it immediately as context.
     if (this.currentSettings?.userVoiceSample && this.session) {
       console.log("Injecting Voice Identity Sample...");
       try {
-        // Send the audio sample
         this.session.sendRealtimeInput([{
           mimeType: "audio/pcm;rate=16000",
           data: this.currentSettings.userVoiceSample
         }]);
 
-        // Send the context instruction for that sample
-        // Note: Sending text right after audio might be treated as prompt
         setTimeout(() => {
           this.session.sendRealtimeInput([{
             text: `SYSTEM NOTE: The audio chunk I just sent is the VOICE SIGNATURE of the Main User (${this.currentSettings?.userName}). Use this to distinguish the owner from others. If you hear a different voice, be skeptical.`
@@ -302,7 +323,7 @@ export class LiveService {
 
   private async handleToolCall(toolCall: any) {
     for (const fc of toolCall.functionCalls) {
-      console.log("Tool:", fc.name, fc.args);
+      console.log("Tool Call:", fc.name, fc.args);
       let result: any = { status: "ok" };
 
       if (fc.name === 'play_youtube_video') {
@@ -311,21 +332,45 @@ export class LiveService {
         this.onVideoCommand({ isOpen: true, type: 'youtube', title: `Đang phát: ${query}`, url: query });
         result = { status: "playing", video: query };
       }
-      if (fc.name === 'enter_deep_sleep') {
+      else if (fc.name === 'enter_deep_sleep') {
         this.onDeepSleepCommand();
         result = { status: "entering_sleep_mode" };
       }
-      if (fc.name === 'open_settings') {
+      else if (fc.name === 'open_settings') {
         this.onOpenSettingsCommand();
         result = { status: "settings_opened" };
       }
-      if (fc.name === 'set_reminder') {
+      else if (fc.name === 'set_reminder') {
         result = { status: "reminder_set" };
       }
-      if (fc.name === 'report_language_change') {
+      else if (fc.name === 'report_language_change') {
         const lang = fc.args.language || "Unknown";
         this.onNotification(`Đang dịch ngôn ngữ: ${lang}`);
         result = { status: "reported" };
+      }
+      // --- 3. IMPLEMENT LOCAL RAG LOGIC ---
+      else if (fc.name === 'search_legal_docs') {
+        const query = (fc.args.query || "").toString().toLowerCase();
+        const context = this.currentSettings?.fileContext || "";
+
+        if (!context) {
+          result = { found: false, message: "Documents empty. Please upload a .txt file in settings." };
+        } else {
+          // Simple Paragraph splitting and matching logic
+          const paragraphs = context.split(/\n\s*\n/); // Split by empty lines
+          const matches = paragraphs
+            .filter(p => p.toLowerCase().includes(query))
+            .slice(0, 3) // Top 3 matches
+            .join("\n---\n"); // Separator
+
+          if (matches) {
+            console.log(`RAG Search found matches for '${query}'`);
+            result = { found: true, content: matches };
+          } else {
+            // Fallback: Try looser search if direct match fails, or return not found
+            result = { found: false, message: `No direct information found for '${query}' in the document.` };
+          }
+        }
       }
 
       if (this.sessionPromise) {
